@@ -114,7 +114,21 @@ memory.post(
       sessionId: body.sessionId,
     });
 
-    // TODO: enqueue to Cloudflare Queue (Task 11)
+    // Enqueue for async processing
+    try {
+      await c.env.EXTRACTION_QUEUE.send({
+        tenantId,
+        extractionId,
+        scope: body.scope,
+        scopeId: body.scopeId,
+        inputType: body.inputType,
+        data: body.data,
+        sessionId: body.sessionId,
+      });
+    } catch (err) {
+      // Queue not available (local dev) — log warning
+      console.warn('[steno] Queue not available, extraction will need manual processing:', err);
+    }
 
     return acceptedResponse(c, extractionId);
   },
@@ -170,7 +184,25 @@ memory.post(
       });
     }
 
-    // TODO: enqueue all to Cloudflare Queue (Task 11)
+    // Enqueue all for async processing
+    try {
+      for (let i = 0; i < body.items.length; i++) {
+        const item = body.items[i]!;
+        const result = results[i]!;
+        await c.env.EXTRACTION_QUEUE.send({
+          tenantId,
+          extractionId: result.extraction_id,
+          scope: item.scope,
+          scopeId: item.scopeId,
+          inputType: item.inputType,
+          data: item.data,
+          sessionId: item.sessionId,
+        });
+      }
+    } catch (err) {
+      // Queue not available (local dev) — log warning
+      console.warn('[steno] Queue not available, extractions will need manual processing:', err);
+    }
 
     return c.json({ extractions: results, status: 'queued' }, 202);
   },
