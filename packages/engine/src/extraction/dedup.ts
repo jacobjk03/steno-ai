@@ -112,6 +112,6 @@ Classify the new fact.`,
   }
 }
 
-function isValidDedupOp(op: unknown): op is 'add' | 'update' | 'noop' | 'contradict' {
-  return typeof op === 'string' && ['add', 'update', 'noop', 'contradict'].includes(op);
+function isValidDedupOp(op: unknown): op is 'add' | 'update' | 'noop' | 'contradict' | 'invalidate' {
+  return typeof op === 'string' && ['add', 'update', 'noop', 'contradict', 'invalidate'].includes(op);
 }

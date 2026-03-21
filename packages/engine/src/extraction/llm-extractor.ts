@@ -30,9 +30,9 @@ export async function extractWithLLM(
   try {
     parsed = JSON.parse(response.content) as Record<string, unknown>;
   } catch {
-    // Retry once
+    // Retry once with slightly higher temperature so output differs
     try {
-      response = await config.llm.complete(messages, { temperature: 0, responseFormat: 'json' });
+      response = await config.llm.complete(messages, { temperature: 0.1, responseFormat: 'json' });
       parsed = JSON.parse(response.content) as Record<string, unknown>;
     } catch {
       return emptyResult(config.tier, config.llm.model);
@@ -60,9 +60,9 @@ export async function extractWithLLM(
       confidence: clamp(confidence, 0, 1),
       sourceType: 'conversation',
       modality: 'text',
-      tags: [],
+      tags: Array.isArray(fact.tags) ? (fact.tags as unknown[]).filter((t): t is string => typeof t === 'string') : [],
       originalContent: input,
-      operation: isValidOperation(fact.operation) ? fact.operation : undefined,
+      operation: isValidOperation(fact.operation) ? (fact.operation as string).toLowerCase() as 'add' | 'update' | 'invalidate' | 'noop' | 'contradict' : undefined,
       existingLineageId:
         typeof fact.existing_lineage_id === 'string' ? fact.existing_lineage_id : undefined,
       contradictsFactId:
@@ -138,7 +138,7 @@ function isValidOperation(
 ): op is 'add' | 'update' | 'invalidate' | 'noop' | 'contradict' {
   return (
     typeof op === 'string' &&
-    ['add', 'update', 'invalidate', 'noop', 'contradict'].includes(op)
+    ['add', 'update', 'invalidate', 'noop', 'contradict'].includes(op.toLowerCase())
   );
 }
 

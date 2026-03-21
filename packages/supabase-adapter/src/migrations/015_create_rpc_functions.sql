@@ -2,6 +2,36 @@
 -- RPC Functions for Supabase .rpc() calls
 -- =============================================================================
 
+-- Atomic usage increment function
+-- Called by SupabaseStorageAdapter.incrementUsage()
+-- Uses INSERT ... ON CONFLICT DO UPDATE to atomically add to existing totals
+-- rather than replacing them (which .upsert() does by default).
+CREATE OR REPLACE FUNCTION increment_usage(
+    p_tenant_id UUID,
+    p_tokens INT,
+    p_queries INT,
+    p_extractions INT,
+    p_cost_usd FLOAT
+)
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    p_start DATE := date_trunc('month', CURRENT_DATE)::date;
+    p_end DATE := (date_trunc('month', CURRENT_DATE) + interval '1 month' - interval '1 day')::date;
+BEGIN
+    INSERT INTO usage_records (id, tenant_id, period_start, period_end, tokens_used, queries_used, extractions_count, cost_usd)
+    VALUES (gen_random_uuid(), p_tenant_id, p_start, p_end, p_tokens, p_queries, p_extractions, p_cost_usd)
+    ON CONFLICT (tenant_id, period_start)
+    DO UPDATE SET
+        tokens_used = usage_records.tokens_used + EXCLUDED.tokens_used,
+        queries_used = usage_records.queries_used + EXCLUDED.queries_used,
+        extractions_count = usage_records.extractions_count + EXCLUDED.extractions_count,
+        cost_usd = usage_records.cost_usd + EXCLUDED.cost_usd,
+        updated_at = NOW();
+END;
+$$;
+
 -- Vector similarity search function
 -- Called by SupabaseStorageAdapter.vectorSearch()
 CREATE OR REPLACE FUNCTION match_facts(

@@ -12,7 +12,7 @@ import { extractHeuristic } from './heuristic.js';
 import { extractWithLLM } from './llm-extractor.js';
 import { deduplicateFacts } from './dedup.js';
 import { processContradictions } from './contradiction.js';
-import { persistEntitiesAndEdges } from './entity-extractor.js';
+import { buildEntityIdMap, persistEdges } from './entity-extractor.js';
 import { hashInput } from './hasher.js';
 
 export interface PipelineConfig {
@@ -36,7 +36,12 @@ export function inputToText(input: ExtractionInput): string {
   if (typeof input.data === 'object' && input.data !== null) {
     const data = input.data as Record<string, unknown>;
     if (Array.isArray(data.messages)) {
-      return (data.messages as Array<{ role: string; content: string }>)
+      return (data.messages as unknown[])
+        .filter((m): m is { role: string; content: string } =>
+          typeof m === 'object' && m !== null &&
+          typeof (m as Record<string, unknown>).role === 'string' &&
+          typeof (m as Record<string, unknown>).content === 'string',
+        )
         .map(m => `${m.role}: ${m.content}`)
         .join('\n');
     }
@@ -208,12 +213,29 @@ export async function runExtractionPipeline(
       (uniqueTiers[0] === 'heuristic' ? 'heuristic' :
         uniqueTiers[0] === 'cheap_llm' ? 'cheap_llm' : 'smart_llm');
 
+    // 13a. Persist entities ONCE (before the fact loop) to build entityIdMap.
+    //      This prevents duplicate entity rows and duplicate edges from being
+    //      created for every fact in the loop.
+    const { entityIdMap, entitiesCreated: newEntitiesCreated } = await buildEntityIdMap(
+      config.storage,
+      config.embedding,
+      input.tenantId,
+      mergedEntities,
+    );
+    entitiesCreated = newEntitiesCreated;
+
+    // Collect the first persisted factId to anchor edges (edges reference a fact).
+    let firstFactId: string | undefined;
+
+    // 13b. Persist facts and link entities per-fact.
     for (const { fact, contradictionStatus, contradictsId } of contradictionResults) {
       // Skip noop facts
       if (fact.operation === 'noop') continue;
 
       // Generate IDs
       const factId = crypto.randomUUID();
+      if (!firstFactId) firstFactId = factId;
+
       let lineageId: string;
 
       if (fact.operation === 'update' && fact.existingLineageId) {
@@ -279,18 +301,23 @@ export async function runExtractionPipeline(
         factsCreated++;
       }
 
-      // Persist entities and edges for this fact
-      const entityResult = await persistEntitiesAndEdges(
-        config.storage,
-        config.embedding,
-        input.tenantId,
-        factId,
-        mergedEntities,
-        mergedEdges,
-      );
+      // Link all entities to this fact (entities were already created once above).
+      for (const entityId of entityIdMap.values()) {
+        await config.storage.linkFactEntity(factId, entityId, 'mentioned');
+      }
+    }
 
-      entitiesCreated += entityResult.entitiesCreated;
-      edgesCreated += entityResult.edgesCreated;
+    // 13c. Create edges ONCE after all facts are persisted.
+    //      Use the first persisted factId as the anchor; if no facts were created
+    //      (all were noop), skip edge creation.
+    if (firstFactId !== undefined && mergedEdges.length > 0) {
+      edgesCreated = await persistEdges(
+        config.storage,
+        input.tenantId,
+        firstFactId,
+        mergedEdges,
+        entityIdMap,
+      );
     }
 
     const durationMs = Date.now() - startTime;

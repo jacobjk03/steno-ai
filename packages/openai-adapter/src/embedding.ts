@@ -18,7 +18,9 @@ export class OpenAIEmbeddingAdapter implements EmbeddingAdapter {
       input: text,
       dimensions: this.dimensions,
     });
-    return response.data[0]!.embedding;
+    const item = response.data[0];
+    if (!item) throw new Error('OpenAI returned empty embedding response');
+    return item.embedding;
   }
 
   async embedBatch(texts: string[]): Promise<number[][]> {

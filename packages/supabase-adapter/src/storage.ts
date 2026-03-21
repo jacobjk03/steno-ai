@@ -458,26 +458,16 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     extractions: number,
     costUsd: number,
   ): Promise<void> {
-    // Determine period boundaries (calendar month)
-    const now = new Date();
-    const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-
-    const { error } = await this.client.from('usage_records').upsert(
-      {
-        tenant_id: tenantId,
-        period_start: periodStart.toISOString(),
-        period_end: periodEnd.toISOString(),
-        tokens_used: tokens,
-        queries_used: queries,
-        extractions_count: extractions,
-        cost_usd: costUsd,
-      },
-      {
-        onConflict: 'tenant_id,period_start',
-        // ignoreDuplicates is false by default, so the update expression runs
-      },
-    );
+    // Call the increment_usage Postgres RPC function which atomically
+    // increments existing totals via INSERT ... ON CONFLICT DO UPDATE.
+    // This avoids the bug where .upsert() replaces values instead of adding.
+    const { error } = await this.client.rpc('increment_usage', {
+      p_tenant_id: tenantId,
+      p_tokens: tokens,
+      p_queries: queries,
+      p_extractions: extractions,
+      p_cost_usd: costUsd,
+    });
     if (error) throwSupabaseError('incrementUsage', error);
   }
 

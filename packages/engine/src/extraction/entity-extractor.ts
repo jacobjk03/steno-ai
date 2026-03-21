@@ -9,25 +9,20 @@ export interface EntityPersistenceResult {
 }
 
 /**
- * Persist extracted entities and edges to the database.
- * - Creates new entities if canonical name doesn't exist for this tenant
- * - Reuses existing entities if canonical name matches
- * - Links all entities to the fact via fact_entities junction
- * - Creates edges between entities
+ * Create or find all entities in the database.
+ * Does NOT link entities to any fact or create edges.
+ * Returns a map of canonicalName → entity.id for use in subsequent operations.
  */
-export async function persistEntitiesAndEdges(
+export async function buildEntityIdMap(
   storage: StorageAdapter,
   embedding: EmbeddingAdapter,
   tenantId: string,
-  factId: string,
   entities: ExtractedEntity[],
-  edges: ExtractedEdge[],
-): Promise<EntityPersistenceResult> {
+): Promise<{ entityIdMap: Map<string, string>; entitiesCreated: number }> {
   const entityIdMap = new Map<string, string>();
   let entitiesCreated = 0;
-  let edgesCreated = 0;
 
-  // 1. Deduplicate entities by canonical name within this batch
+  // Deduplicate entities by canonical name within this batch
   const uniqueEntities = new Map<string, ExtractedEntity>();
   for (const entity of entities) {
     if (!uniqueEntities.has(entity.canonicalName)) {
@@ -35,9 +30,8 @@ export async function persistEntitiesAndEdges(
     }
   }
 
-  // 2. Create or find each entity
+  // Create or find each entity
   for (const entity of uniqueEntities.values()) {
-    // Check if entity already exists in DB
     const existing = await storage.findEntityByCanonicalName(
       tenantId,
       entity.canonicalName,
@@ -60,13 +54,23 @@ export async function persistEntitiesAndEdges(
       entityIdMap.set(entity.canonicalName, id);
       entitiesCreated++;
     }
-
-    // 3. Link fact → entity
-    const entityId = entityIdMap.get(entity.canonicalName)!;
-    await storage.linkFactEntity(factId, entityId, 'mentioned');
   }
 
-  // 4. Create edges between entities
+  return { entityIdMap, entitiesCreated };
+}
+
+/**
+ * Create edges between already-persisted entities.
+ * Uses the entityIdMap built by buildEntityIdMap.
+ */
+export async function persistEdges(
+  storage: StorageAdapter,
+  tenantId: string,
+  factId: string,
+  edges: ExtractedEdge[],
+  entityIdMap: Map<string, string>,
+): Promise<number> {
+  let edgesCreated = 0;
   for (const edge of edges) {
     const sourceId = entityIdMap.get(edge.sourceName);
     const targetId = entityIdMap.get(edge.targetName);
@@ -86,8 +90,42 @@ export async function persistEntitiesAndEdges(
       edgesCreated++;
     }
     // If source or target entity not found, silently skip the edge
-    // (the entity might not have been extracted from this fact)
   }
+  return edgesCreated;
+}
+
+/**
+ * Persist extracted entities and edges to the database.
+ * - Creates new entities if canonical name doesn't exist for this tenant
+ * - Reuses existing entities if canonical name matches
+ * - Links all entities to the fact via fact_entities junction
+ * - Creates edges between entities
+ *
+ * @deprecated Use buildEntityIdMap + persistEdges directly for better control.
+ * This function is kept for backward compatibility.
+ */
+export async function persistEntitiesAndEdges(
+  storage: StorageAdapter,
+  embedding: EmbeddingAdapter,
+  tenantId: string,
+  factId: string,
+  entities: ExtractedEntity[],
+  edges: ExtractedEdge[],
+): Promise<EntityPersistenceResult> {
+  const { entityIdMap, entitiesCreated } = await buildEntityIdMap(
+    storage,
+    embedding,
+    tenantId,
+    entities,
+  );
+
+  // Link all entities to this fact
+  for (const [canonicalName, entityId] of entityIdMap) {
+    void canonicalName; // used as key only
+    await storage.linkFactEntity(factId, entityId, 'mentioned');
+  }
+
+  const edgesCreated = await persistEdges(storage, tenantId, factId, edges, entityIdMap);
 
   return { entitiesCreated, edgesCreated, entityIdMap };
 }
