@@ -3,7 +3,9 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest watch",
@@ -11,6 +13,13 @@
     "build": "tsc",
     "clean": "rm -rf dist"
   },
-  "dependencies": { "zod": "^3.23" },
-  "devDependencies": { "typescript": "^5.7", "vitest": "^3" }
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "zod": "^3.23"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^3.0.0",
+    "typescript": "^5.7",
+    "vitest": "^3"
+  }
 }
