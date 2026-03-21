@@ -1,0 +1,28 @@
+{
+  "name": "@steno-ai/api",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@steno-ai/engine": "workspace:*",
+    "@steno-ai/supabase-adapter": "workspace:*",
+    "@steno-ai/openai-adapter": "workspace:*",
+    "@steno-ai/cache-adapter": "workspace:*",
+    "hono": "^4",
+    "@upstash/ratelimit": "^2",
+    "@upstash/redis": "^1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7",
+    "vitest": "^3",
+    "wrangler": "^3",
+    "@cloudflare/workers-types": "^4"
+  }
+}
