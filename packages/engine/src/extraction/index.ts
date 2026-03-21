@@ -5,3 +5,4 @@ export * from './heuristic.js';
 export * from './contradiction.js';
 export * from './entity-extractor.js';
 export * from './llm-extractor.js';
+export * from './dedup.js';
