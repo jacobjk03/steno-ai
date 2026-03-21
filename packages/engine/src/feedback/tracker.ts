@@ -72,6 +72,7 @@ export async function submitFeedback(
     feedbackType: FeedbackType;
     feedbackDetail?: string;
   },
+  config?: { halfLifeDays?: number; normalizationK?: number },
 ): Promise<void> {
   // 1. Update the memory access record with feedback
   await storage.updateFeedback(tenantId, factId, {
@@ -107,8 +108,8 @@ export async function submitFeedback(
       importance: newImportance,
       frequency: fact.frequency,
       lastAccessed: fact.lastAccessed ?? new Date(),
-      halfLifeDays: 30,
-      normalizationK: 50,
+      halfLifeDays: config?.halfLifeDays ?? 30,
+      normalizationK: config?.normalizationK ?? 50,
     });
 
     await storage.updateDecayScores(tenantId, [

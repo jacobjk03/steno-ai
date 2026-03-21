@@ -54,6 +54,7 @@ export interface KeywordSearchOptions {
   scopeId: string;
   limit: number;
   validOnly?: boolean;
+  asOf?: Date;
 }
 
 export interface KeywordSearchResult {
@@ -67,6 +68,7 @@ export interface GraphTraversalOptions {
   maxDepth: number;
   maxEntities: number;
   validOnly?: boolean;
+  asOf?: Date;
 }
 
 export interface GraphTraversalResult {

@@ -5,6 +5,7 @@ import type { Candidate } from './types.js';
 export interface GraphSearchConfig {
   maxDepth: number;       // default 3, max 5
   maxEntities: number;    // default 200
+  asOf?: Date;            // point-in-time temporal filter
 }
 
 const DEFAULT_MAX_DEPTH = 3;
@@ -75,6 +76,7 @@ export async function graphSearch(
     entityIds: seedEntityIds,
     maxDepth,
     maxEntities,
+    asOf: config?.asOf,
   });
 
   if (traversalResult.entities.length === 0) return [];

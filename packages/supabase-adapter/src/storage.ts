@@ -612,7 +612,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
   }
 
   async keywordSearch(options: KeywordSearchOptions): Promise<KeywordSearchResult[]> {
-    const { query, tenantId, scope, scopeId, limit } = options;
+    const { query, tenantId, scope, scopeId, limit, asOf } = options;
 
     const { data, error } = await this.client.rpc('keyword_search_facts', {
       search_query: query,
@@ -620,6 +620,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       match_scope: scope,
       match_scope_id: scopeId,
       match_count: limit,
+      match_as_of: asOf?.toISOString() ?? null,
     });
 
     if (error) throwSupabaseError('keywordSearch', error);
@@ -756,6 +757,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       seed_entity_ids: options.entityIds,
       max_depth: options.maxDepth,
       max_entities: options.maxEntities,
+      match_as_of: options.asOf?.toISOString() ?? null,
     });
 
     if (error) throwSupabaseError('graphTraversal', error);
@@ -899,7 +901,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
   async updateFeedback(
     tenantId: string,
     factId: string,
-    feedback: { wasUseful: boolean; feedbackType: string; feedbackDetail?: string },
+    feedback: { wasUseful: boolean; feedbackType: string; feedbackDetail?: string; wasCorrected?: boolean },
   ): Promise<void> {
     // Update the MOST RECENT memory access for this fact
     const { data: accessRows, error: findError } = await this.client
@@ -919,6 +921,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
         was_useful: feedback.wasUseful,
         feedback_type: feedback.feedbackType,
         feedback_detail: feedback.feedbackDetail ?? null,
+        was_corrected: feedback.wasCorrected ?? false,
       })
       .eq('id', accessId);
     if (error) throwSupabaseError('updateFeedback', error);

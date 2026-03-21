@@ -8,6 +8,7 @@ export async function keywordSearch(
   scope: string,
   scopeId: string,
   limit: number,
+  asOf?: Date,
 ): Promise<Candidate[]> {
   const results = await storage.keywordSearch({
     query,
@@ -16,6 +17,7 @@ export async function keywordSearch(
     scopeId,
     limit,
     validOnly: true,
+    asOf,
   });
 
   if (results.length === 0) return [];

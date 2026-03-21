@@ -33,8 +33,8 @@ export async function search(
   // 1. Run all signals in PARALLEL using Promise.allSettled (graceful degradation)
   const [vectorSettled, keywordSettled, graphSettled, triggerSettled] = await Promise.allSettled([
     vectorSearch(config.storage, config.embedding, options.query, options.tenantId, options.scope, options.scopeId, limit * fetchMultiplier, options.temporalFilter?.asOf),
-    keywordSearch(config.storage, options.query, options.tenantId, options.scope, options.scopeId, limit * fetchMultiplier),
-    graphSearch(config.storage, config.embedding, options.query, options.tenantId, options.scope, options.scopeId, limit * fetchMultiplier, { maxDepth: config.graphMaxDepth, maxEntities: config.graphMaxEntities }),
+    keywordSearch(config.storage, options.query, options.tenantId, options.scope, options.scopeId, limit * fetchMultiplier, options.temporalFilter?.asOf),
+    graphSearch(config.storage, config.embedding, options.query, options.tenantId, options.scope, options.scopeId, limit * fetchMultiplier, { maxDepth: config.graphMaxDepth, maxEntities: config.graphMaxEntities, asOf: options.temporalFilter?.asOf }),
     matchTriggers(config.storage, config.embedding, options.query, options.tenantId, options.scope, options.scopeId),
   ]);
 
