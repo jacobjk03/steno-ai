@@ -6,7 +6,7 @@ export const ExtractionSchema = z.object({
   tenantId: z.string().uuid(),
   status: z.enum(EXTRACTION_STATUSES),
   inputType: z.enum(INPUT_TYPES),
-  inputData: z.record(z.unknown()).nullable(),
+  inputData: z.union([z.string(), z.record(z.unknown())]).nullable(),
   inputHash: z.string(),
   inputSize: z.number().int().nonnegative().nullable(),
   scope: z.enum(SCOPES),

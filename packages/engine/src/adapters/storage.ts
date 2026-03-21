@@ -73,6 +73,7 @@ export interface StorageAdapter {
   // Facts
   createFact(fact: CreateFact & { id: string; lineageId: string; embeddingModel: string; embeddingDim: number; embedding?: number[] }): Promise<Fact>;
   getFact(tenantId: string, id: string): Promise<Fact | null>;
+  getFactsByIds(tenantId: string, ids: string[]): Promise<Fact[]>;
   getFactsByLineage(tenantId: string, lineageId: string): Promise<Fact[]>;
   getFactsByScope(tenantId: string, scope: string, scopeId: string, options: PaginationOptions): Promise<PaginatedResult<Fact>>;
   invalidateFact(tenantId: string, id: string): Promise<void>;

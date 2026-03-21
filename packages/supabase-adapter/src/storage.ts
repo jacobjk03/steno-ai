@@ -314,6 +314,19 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     return toCamelCase(data as Record<string, unknown>) as unknown as Fact;
   }
 
+  async getFactsByIds(tenantId: string, ids: string[]): Promise<Fact[]> {
+    if (ids.length === 0) return [];
+    const { data, error } = await this.client
+      .from('facts')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .in('id', ids);
+    if (error) throwSupabaseError('getFactsByIds', error);
+    return (data ?? []).map(
+      (row) => toCamelCase(row as Record<string, unknown>) as unknown as Fact,
+    );
+  }
+
   async getFactsByLineage(tenantId: string, lineageId: string): Promise<Fact[]> {
     const { data, error } = await this.client
       .from('facts')
@@ -437,6 +450,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       match_scope_id: scopeId,
       match_count: limit,
       min_similarity: minSimilarity ?? 0,
+      match_as_of: options.asOf?.toISOString() ?? null,
     });
 
     if (error) throwSupabaseError('vectorSearch', error);

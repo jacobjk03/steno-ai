@@ -40,7 +40,8 @@ CREATE OR REPLACE FUNCTION match_facts(
     match_scope TEXT,
     match_scope_id TEXT,
     match_count INT,
-    min_similarity FLOAT DEFAULT 0
+    min_similarity FLOAT DEFAULT 0,
+    match_as_of TIMESTAMPTZ DEFAULT NULL
 )
 RETURNS TABLE (
     id UUID,
@@ -64,7 +65,7 @@ RETURNS TABLE (
     contradiction_status TEXT,
     contradicts_id UUID,
     source_type TEXT,
-    source_ref TEXT,
+    source_ref JSONB,
     confidence FLOAT,
     original_content TEXT,
     extraction_id UUID,
@@ -93,7 +94,14 @@ BEGIN
     WHERE f.tenant_id = match_tenant_id
       AND f.scope = match_scope
       AND f.scope_id = match_scope_id
-      AND f.valid_until IS NULL
+      AND (
+        CASE
+          WHEN match_as_of IS NOT NULL THEN
+            f.valid_from <= match_as_of AND (f.valid_until IS NULL OR f.valid_until > match_as_of)
+          ELSE
+            f.valid_until IS NULL
+        END
+      )
       AND (1 - (f.embedding <=> query_embedding::vector)) >= min_similarity
     ORDER BY f.embedding <=> query_embedding::vector
     LIMIT match_count;
