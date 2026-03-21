@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Env } from './env.js';
-import { requestIdMiddleware, corsMiddleware, globalErrorHandler } from './middleware/index.js';
+import { requestIdMiddleware, corsMiddleware, globalErrorHandler, rateLimitMiddleware } from './middleware/index.js';
 import {
   memoryRoutes,
   exportRoutes,
@@ -42,7 +42,11 @@ export function createApp(): AppType {
   // 4. Health check — no auth required
   app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
-  // 5. API v1 routes — auth + rate limit applied per-route internally
+  // 5. Rate limiting for all /v1/* routes (skips /health)
+  //    Runs after auth sets tenantId/tenantPlan on context per-route
+  app.use('/v1/*', rateLimitMiddleware());
+
+  // 6. API v1 routes — auth applied per-route internally
   //    Mount /v1/memory/search BEFORE /v1/memory to avoid path conflicts
   app.route('/v1/memory/search', searchRoutes);
   app.route('/v1/memory', memoryRoutes);

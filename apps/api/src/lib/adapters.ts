@@ -33,6 +33,11 @@ export function createAdapters(env: Env): Adapters {
       apiKey: env.OPENAI_API_KEY,
       model: env.SMART_LLM_MODEL ?? 'gpt-4o',
     }),
-    cache: new InMemoryCacheAdapter(), // TODO: Replace with UpstashCacheAdapter when ready
+    // TODO: Replace InMemoryCacheAdapter with UpstashCacheAdapter for production.
+    // InMemoryCacheAdapter is suitable for MVP/dev but does not persist across
+    // worker restarts and cannot be shared across multiple instances.
+    // When Upstash integration is ready, use:
+    //   cache: new UpstashCacheAdapter({ url: env.UPSTASH_REDIS_REST_URL, token: env.UPSTASH_REDIS_REST_TOKEN })
+    cache: new InMemoryCacheAdapter(),
   };
 }

@@ -155,7 +155,7 @@ export interface StorageAdapter {
   getCurrentUsage(tenantId: string): Promise<UsageRecord | null>;
 
   // Webhooks
-  createWebhook(webhook: CreateWebhook & { id: string; secretHash: string }): Promise<Webhook>;
+  createWebhook(webhook: CreateWebhook & { id: string; secretHash: string; signingKey: string }): Promise<Webhook>;
   getWebhook(tenantId: string, id: string): Promise<Webhook | null>;
   getWebhooksForTenant(tenantId: string): Promise<Webhook[]>;
   getWebhooksByEvent(tenantId: string, event: string): Promise<Webhook[]>;

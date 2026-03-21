@@ -63,17 +63,20 @@ function makeStorage(overrides: Partial<StorageAdapter> = {}): StorageAdapter {
     createWebhook: vi.fn().mockImplementation(async (input) => ({
       id: input.id, tenantId: TENANT_ID, url: input.url,
       events: input.events, secretHash: input.secretHash,
+      signingKey: input.signingKey,
       active: true, createdAt: new Date(),
     })),
     getWebhook: vi.fn().mockImplementation(async () => ({
       id: WEBHOOK_ID, tenantId: TENANT_ID, url: 'https://example.com/hook',
       events: ['extraction.completed'], secretHash: 'abc',
+      signingKey: 'test-signing-key',
       active: true, createdAt: new Date(),
     })),
     getWebhooksForTenant: vi.fn().mockResolvedValue([
       {
         id: WEBHOOK_ID, tenantId: TENANT_ID, url: 'https://example.com/hook',
         events: ['extraction.completed'], secretHash: 'abc',
+        signingKey: 'test-signing-key',
         active: true, createdAt: new Date(),
       },
     ]),
@@ -133,6 +136,7 @@ describe('webhook routes', () => {
       // Secret must NOT be returned
       expect(body.data.secret).toBeUndefined();
       expect(body.data.secret_hash).toBeUndefined();
+      expect(body.data.signing_key).toBeUndefined();
     });
   });
 

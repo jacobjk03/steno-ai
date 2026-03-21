@@ -15,6 +15,7 @@ export const WebhookSchema = z.object({
   url: z.string().url(),
   events: z.array(z.enum(WEBHOOK_EVENTS)),
   secretHash: z.string(),
+  signingKey: z.string(), // raw secret for HMAC signing — stored encrypted at rest in production
   active: z.boolean().default(true),
   createdAt: z.coerce.date(),
 });

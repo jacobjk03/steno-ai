@@ -353,9 +353,9 @@ describe('POST /v1/memory/batch', () => {
     expect(res.status).toBe(202);
 
     const body = await res.json();
-    expect(body.extractions).toHaveLength(3);
-    expect(body.status).toBe('queued');
-    for (const ext of body.extractions) {
+    expect(body.data.extractions).toHaveLength(3);
+    expect(body.data.status).toBe('queued');
+    for (const ext of body.data.extractions) {
       expect(ext.extraction_id).toBeDefined();
       expect(ext.poll_url).toContain('/v1/extractions/');
     }

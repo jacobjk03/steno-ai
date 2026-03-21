@@ -120,7 +120,7 @@ triggers.delete(
     }
 
     await storage.deleteTrigger(tenantId, triggerId);
-    return c.json({ data: { deleted: true } });
+    return successResponse(c, { id: triggerId, deleted: true });
   },
 );
 

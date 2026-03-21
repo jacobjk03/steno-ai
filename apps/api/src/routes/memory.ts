@@ -10,7 +10,8 @@ import {
 } from '../lib/response.js';
 import { toSnakeCaseWire } from '../lib/wire-format.js';
 import { authMiddleware, validate, notFound, conflict, badRequest } from '../middleware/index.js';
-import { hashInput, inputToText } from '@steno-ai/engine';
+import { hashInput, inputToText, SCOPES } from '@steno-ai/engine';
+import { stripHtml } from '../lib/sanitize.js';
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -91,14 +92,14 @@ memory.post(
       });
     }
 
-    // Convert data to text for storage
-    const textContent = inputToText({
+    // Convert data to text for storage, then sanitize to strip HTML/XSS
+    const textContent = stripHtml(inputToText({
       tenantId,
       scope: body.scope,
       scopeId: body.scopeId,
       inputType: body.inputType,
       data: body.data,
-    });
+    }));
 
     // Create extraction record with status='queued'
     const extractionId = crypto.randomUUID();
@@ -152,13 +153,13 @@ memory.post(
     const results: Array<{ extraction_id: string; poll_url: string }> = [];
 
     for (const item of body.items) {
-      const textContent = inputToText({
+      const textContent = stripHtml(inputToText({
         tenantId,
         scope: item.scope,
         scopeId: item.scopeId,
         inputType: item.inputType,
         data: item.data,
-      });
+      }));
 
       const inputHash = await hashInput({
         type: item.inputType,
@@ -204,7 +205,7 @@ memory.post(
       console.warn('[steno] Queue not available, extractions will need manual processing:', err);
     }
 
-    return c.json({ extractions: results, status: 'queued' }, 202);
+    return c.json({ data: { extractions: results, status: 'queued' } }, 202);
   },
 );
 
@@ -218,6 +219,11 @@ memory.get('/', authMiddleware('read'), async (c) => {
 
   if (!scope || !scopeId) {
     throw badRequest('scope and scope_id query parameters are required');
+  }
+
+  const scopeParse = z.enum(SCOPES).safeParse(scope);
+  if (!scopeParse.success) {
+    throw badRequest(`Invalid scope: ${scope}. Must be one of: ${SCOPES.join(', ')}`);
   }
 
   const limit = Math.min(
@@ -349,6 +355,10 @@ exportRoutes.get('/', authMiddleware('admin'), async (c) => {
     { limit: 10000 },
   );
 
+  // TODO: getEntitiesForTenant does not support scope/scopeId filtering yet.
+  // This returns ALL entities for the tenant, not just those linked to facts in the
+  // requested scope. A proper fix requires a new storage method (getEntitiesByScope)
+  // or filtering via fact_entities join.
   const entities = await adapters.storage.getEntitiesForTenant(tenantId, {
     limit: 10000,
   });
@@ -360,12 +370,26 @@ exportRoutes.get('/', authMiddleware('admin'), async (c) => {
     { limit: 10000 },
   );
 
+  // Collect edges for all entities (deduplicated by ID)
+  const edgeMap = new Map<string, unknown>();
+  for (const entity of entities.data) {
+    const entityEdges = await adapters.storage.getEdgesForEntity(tenantId, (entity as { id: string }).id);
+    for (const edge of entityEdges) {
+      const edgeId = (edge as { id: string }).id;
+      if (!edgeMap.has(edgeId)) {
+        edgeMap.set(edgeId, edge);
+      }
+    }
+  }
+  const edges = Array.from(edgeMap.values());
+
   return c.json(
     toSnakeCaseWire({
       scope,
       scopeId,
       facts: facts.data,
       entities: entities.data,
+      edges,
       sessions: sessions.data,
       exportedAt: new Date(),
     }),

@@ -90,6 +90,7 @@ function makeWebhook(id: string, url: string) {
     url,
     events: ['extraction.completed'] as string[],
     secretHash: 'hashed-secret',
+    signingKey: `signing-key-for-${id}`,
     active: true,
     createdAt: new Date(),
   };
@@ -196,7 +197,7 @@ describe('handleWebhookQueue', () => {
     expect(new Date(body.timestamp).toISOString()).toBe(body.timestamp);
   });
 
-  it('signs payload with signWebhookPayload using webhook id', async () => {
+  it('signs payload with signWebhookPayload using webhook signingKey', async () => {
     const wh = makeWebhook(WEBHOOK_ID_1, 'https://example.com/hook');
     mockGetWebhooksByEvent.mockResolvedValue([wh]);
 
@@ -212,8 +213,8 @@ describe('handleWebhookQueue', () => {
 
     expect(mockSignWebhookPayload).toHaveBeenCalledTimes(1);
     const [payloadStr, secret] = mockSignWebhookPayload.mock.calls[0];
-    // Should use webhook ID as the signing key
-    expect(secret).toBe(WEBHOOK_ID_1);
+    // Should use webhook signingKey (raw secret) for HMAC signing
+    expect(secret).toBe(`signing-key-for-${WEBHOOK_ID_1}`);
     // Payload string should be valid JSON with event + data + timestamp
     const parsed = JSON.parse(payloadStr as string);
     expect(parsed.event).toBe('extraction.completed');

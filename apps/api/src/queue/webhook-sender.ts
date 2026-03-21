@@ -34,10 +34,8 @@ export async function handleWebhookQueue(
       });
 
       for (const webhook of webhooks) {
-        // Sign the payload with the webhook's ID as deterministic signing key.
-        // NOTE: We store secretHash (bcrypt), but HMAC signing needs the raw secret.
-        // TODO: Implement proper HMAC with stored secret
-        const signature = await signWebhookPayload(payloadStr, webhook.id);
+        // Sign the payload with the webhook's stored signing key (raw secret)
+        const signature = await signWebhookPayload(payloadStr, webhook.signingKey);
 
         try {
           const response = await fetch(webhook.url, {

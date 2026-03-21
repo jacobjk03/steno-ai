@@ -45,6 +45,7 @@ webhooks.post(
       events: body.events,
       secret: body.secret,
       secretHash,
+      signingKey: body.secret, // store raw secret for HMAC signing
     });
 
     // Return webhook WITHOUT the secret

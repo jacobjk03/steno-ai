@@ -1048,9 +1048,10 @@ export class SupabaseStorageAdapter implements StorageAdapter {
   // ---------------------------------------------------------------------------
 
   async createWebhook(
-    webhook: CreateWebhook & { id: string; secretHash: string },
+    webhook: CreateWebhook & { id: string; secretHash: string; signingKey: string },
   ): Promise<Webhook> {
-    // CreateWebhook has `secret` but we don't store the raw secret — only secretHash.
+    // CreateWebhook has `secret` but we don't store it separately — signingKey holds the raw
+    // secret for HMAC signing, and secretHash holds the hashed version.
     // Strip `secret` before inserting; it's not a DB column.
     const { secret: _secret, ...rest } = webhook;
     const row = toSnakeCase(rest as unknown as Record<string, unknown>);
