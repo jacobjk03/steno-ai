@@ -1,0 +1,28 @@
+import { z } from 'zod';
+import { StenoConfigSchema, PLANS } from '../config.js';
+
+export const TenantSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().max(100),
+  slug: z.string().max(50).regex(/^[a-z0-9-]+$/),
+  config: StenoConfigSchema,
+  plan: z.enum(PLANS),
+  tokenLimitMonthly: z.bigint().positive(),
+  queryLimitMonthly: z.bigint().positive(),
+  stripeCustomerId: z.string().nullable(),
+  stripeSubscriptionId: z.string().nullable(),
+  active: z.boolean(),
+  createdAt: z.coerce.date(),
+  updatedAt: z.coerce.date(),
+});
+
+export type Tenant = z.infer<typeof TenantSchema>;
+
+export const CreateTenantSchema = z.object({
+  name: z.string().max(100),
+  slug: z.string().max(50).regex(/^[a-z0-9-]+$/),
+  plan: z.enum(PLANS).default('free'),
+  config: StenoConfigSchema.default({}),
+});
+
+export type CreateTenant = z.infer<typeof CreateTenantSchema>;
