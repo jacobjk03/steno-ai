@@ -552,38 +552,203 @@ export class SupabaseStorageAdapter implements StorageAdapter {
   }
 
   async getEntitiesForTenant(
-    _tenantId: string,
-    _options: PaginationOptions,
+    tenantId: string,
+    options: PaginationOptions,
   ): Promise<PaginatedResult<Entity>> {
-    throw new Error('SupabaseStorageAdapter.getEntitiesForTenant() not yet implemented. Coming in Plan 3.');
+    const { limit, cursor } = options;
+    let query = this.client
+      .from('entities')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .order('created_at', { ascending: true })
+      .limit(limit + 1); // fetch one extra to determine hasMore
+
+    if (cursor) {
+      query = query.gt('created_at', cursor);
+    }
+
+    const { data, error } = await query;
+    if (error) throwSupabaseError('getEntitiesForTenant', error);
+
+    const rows = data ?? [];
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    const entities = page.map(
+      (row) => toCamelCase(row as Record<string, unknown>) as unknown as Entity,
+    );
+    const nextCursor = hasMore && page.length > 0
+      ? (page[page.length - 1] as Record<string, unknown>)['created_at'] as string
+      : null;
+
+    return { data: entities, cursor: nextCursor, hasMore };
   }
 
-  async getEntitiesForFact(_factId: string): Promise<Entity[]> {
-    throw new Error('SupabaseStorageAdapter.getEntitiesForFact() not yet implemented. Coming in Plan 3.');
+  async getEntitiesForFact(factId: string): Promise<Entity[]> {
+    // First, get entity IDs from the junction table
+    const { data: junctionRows, error: junctionError } = await this.client
+      .from('fact_entities')
+      .select('entity_id')
+      .eq('fact_id', factId);
+    if (junctionError) throwSupabaseError('getEntitiesForFact', junctionError);
+    if (!junctionRows || junctionRows.length === 0) return [];
+
+    const entityIds = junctionRows.map((row: Record<string, unknown>) => row['entity_id'] as string);
+
+    // Then fetch the full entity records
+    const { data, error } = await this.client
+      .from('entities')
+      .select('*')
+      .in('id', entityIds);
+    if (error) throwSupabaseError('getEntitiesForFact', error);
+    return (data ?? []).map(
+      (row) => toCamelCase(row as Record<string, unknown>) as unknown as Entity,
+    );
   }
 
   async getFactsForEntity(
-    _tenantId: string,
-    _entityId: string,
-    _options: PaginationOptions,
+    tenantId: string,
+    entityId: string,
+    options: PaginationOptions,
   ): Promise<PaginatedResult<Fact>> {
-    throw new Error('SupabaseStorageAdapter.getFactsForEntity() not yet implemented. Coming in Plan 3.');
+    const { limit, cursor } = options;
+
+    // First, get fact IDs from the junction table
+    let junctionQuery = this.client
+      .from('fact_entities')
+      .select('fact_id')
+      .eq('entity_id', entityId);
+
+    const { data: junctionData, error: junctionError } = await junctionQuery;
+    if (junctionError) throwSupabaseError('getFactsForEntity', junctionError);
+
+    const factIds = (junctionData ?? []).map((row) => (row as Record<string, unknown>)['fact_id'] as string);
+    if (factIds.length === 0) {
+      return { data: [], cursor: null, hasMore: false };
+    }
+
+    // Then fetch the actual facts
+    let factsQuery = this.client
+      .from('facts')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .in('id', factIds)
+      .order('created_at', { ascending: false })
+      .limit(limit + 1);
+
+    if (cursor) {
+      factsQuery = factsQuery.lt('created_at', cursor);
+    }
+
+    const { data, error } = await factsQuery;
+    if (error) throwSupabaseError('getFactsForEntity', error);
+
+    const rows = data ?? [];
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    const facts = page.map(
+      (row) => toCamelCase(row as Record<string, unknown>) as unknown as Fact,
+    );
+    const nextCursor = hasMore && page.length > 0
+      ? (page[page.length - 1] as Record<string, unknown>)['created_at'] as string
+      : null;
+
+    return { data: facts, cursor: nextCursor, hasMore };
   }
 
-  async getEdgesForEntity(_tenantId: string, _entityId: string): Promise<Edge[]> {
-    throw new Error('SupabaseStorageAdapter.getEdgesForEntity() not yet implemented. Coming in Plan 3.');
+  async getEdgesForEntity(tenantId: string, entityId: string): Promise<Edge[]> {
+    const { data, error } = await this.client
+      .from('edges')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .or(`source_id.eq.${entityId},target_id.eq.${entityId}`);
+    if (error) throwSupabaseError('getEdgesForEntity', error);
+    return (data ?? []).map(
+      (row) => toCamelCase(row as Record<string, unknown>) as unknown as Edge,
+    );
   }
 
-  async graphTraversal(_options: GraphTraversalOptions): Promise<GraphTraversalResult> {
-    throw new Error('SupabaseStorageAdapter.graphTraversal() not yet implemented. Coming in Plan 3.');
+  async graphTraversal(options: GraphTraversalOptions): Promise<GraphTraversalResult> {
+    const { data, error } = await this.client.rpc('graph_traverse', {
+      match_tenant_id: options.tenantId,
+      seed_entity_ids: options.entityIds,
+      max_depth: options.maxDepth,
+      max_entities: options.maxEntities,
+    });
+
+    if (error) throwSupabaseError('graphTraversal', error);
+
+    const rows = (data ?? []) as Record<string, unknown>[];
+
+    // Deduplicate entities by id
+    const entityMap = new Map<string, Entity>();
+    const edgeMap = new Map<string, Edge>();
+
+    for (const row of rows) {
+      const entityId = row['entity_id'] as string;
+      if (!entityMap.has(entityId)) {
+        entityMap.set(entityId, {
+          id: entityId,
+          tenantId: options.tenantId,
+          name: row['entity_name'] as string,
+          entityType: row['entity_type'] as string,
+          canonicalName: row['canonical_name'] as string,
+          properties: (row['properties'] as Record<string, unknown>) ?? {},
+          embeddingModel: null,
+          embeddingDim: null,
+          mergeTargetId: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      }
+
+      // Filter out null edges (seed entities at depth 0 have null edge fields)
+      const edgeId = row['edge_id'] as string | null;
+      if (edgeId && !edgeMap.has(edgeId)) {
+        edgeMap.set(edgeId, {
+          id: edgeId,
+          tenantId: options.tenantId,
+          sourceId: row['edge_source_id'] as string,
+          targetId: row['edge_target_id'] as string,
+          relation: row['edge_relation'] as string,
+          edgeType: row['edge_type'] as Edge['edgeType'],
+          weight: (row['edge_weight'] as number) ?? 1.0,
+          validFrom: row['edge_valid_from'] ? new Date(row['edge_valid_from'] as string) : new Date(),
+          validUntil: row['edge_valid_until'] ? new Date(row['edge_valid_until'] as string) : null,
+          factId: null,
+          confidence: (row['edge_confidence'] as number) ?? 1.0,
+          metadata: {},
+          createdAt: new Date(),
+        });
+      }
+    }
+
+    return {
+      entities: Array.from(entityMap.values()),
+      edges: Array.from(edgeMap.values()),
+    };
   }
 
-  async createTrigger(_trigger: CreateTrigger & { id: string }): Promise<Trigger> {
-    throw new Error('SupabaseStorageAdapter.createTrigger() not yet implemented. Coming in Plan 3.');
+  async createTrigger(trigger: CreateTrigger & { id: string }): Promise<Trigger> {
+    const row = toSnakeCase(trigger as unknown as Record<string, unknown>);
+    const { data, error } = await this.client
+      .from('triggers')
+      .insert(row)
+      .select()
+      .single();
+    if (error) throwSupabaseError('createTrigger', error);
+    return toCamelCase(data as Record<string, unknown>) as unknown as Trigger;
   }
 
-  async getTrigger(_tenantId: string, _id: string): Promise<Trigger | null> {
-    throw new Error('SupabaseStorageAdapter.getTrigger() not yet implemented. Coming in Plan 3.');
+  async getTrigger(tenantId: string, id: string): Promise<Trigger | null> {
+    const { data, error } = await this.client
+      .from('triggers')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throwSupabaseError('getTrigger', error);
+    if (!data) return null;
+    return toCamelCase(data as Record<string, unknown>) as unknown as Trigger;
   }
 
   async getActiveTriggers(tenantId: string, scope: string, scopeId: string): Promise<Trigger[]> {
@@ -602,19 +767,37 @@ export class SupabaseStorageAdapter implements StorageAdapter {
   }
 
   async updateTrigger(
-    _tenantId: string,
-    _id: string,
-    _updates: Partial<Trigger>,
+    tenantId: string,
+    id: string,
+    updates: Partial<Trigger>,
   ): Promise<Trigger> {
-    throw new Error('SupabaseStorageAdapter.updateTrigger() not yet implemented. Coming in Plan 3.');
+    const row = toSnakeCase(updates as unknown as Record<string, unknown>);
+    const { data, error } = await this.client
+      .from('triggers')
+      .update(row)
+      .eq('tenant_id', tenantId)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throwSupabaseError('updateTrigger', error);
+    return toCamelCase(data as Record<string, unknown>) as unknown as Trigger;
   }
 
-  async deleteTrigger(_tenantId: string, _id: string): Promise<void> {
-    throw new Error('SupabaseStorageAdapter.deleteTrigger() not yet implemented. Coming in Plan 3.');
+  async deleteTrigger(tenantId: string, id: string): Promise<void> {
+    const { error } = await this.client
+      .from('triggers')
+      .delete()
+      .eq('tenant_id', tenantId)
+      .eq('id', id);
+    if (error) throwSupabaseError('deleteTrigger', error);
   }
 
-  async incrementTriggerFired(_tenantId: string, _id: string): Promise<void> {
-    throw new Error('SupabaseStorageAdapter.incrementTriggerFired() not yet implemented. Coming in Plan 3.');
+  async incrementTriggerFired(tenantId: string, id: string): Promise<void> {
+    const { error } = await this.client.rpc('increment_trigger_fired', {
+      p_tenant_id: tenantId,
+      p_trigger_id: id,
+    });
+    if (error) throwSupabaseError('incrementTriggerFired', error);
   }
 
   async createMemoryAccess(
