@@ -509,23 +509,106 @@ export class SupabaseStorageAdapter implements StorageAdapter {
   // ---------------------------------------------------------------------------
 
   async getFactsByScope(
-    _tenantId: string,
-    _scope: string,
-    _scopeId: string,
-    _options: PaginationOptions,
+    tenantId: string,
+    scope: string,
+    scopeId: string,
+    options: PaginationOptions,
   ): Promise<PaginatedResult<Fact>> {
-    throw new Error('SupabaseStorageAdapter.getFactsByScope() not yet implemented. Coming in Plan 3.');
+    const { limit, cursor } = options;
+    let query = this.client
+      .from('facts')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('scope', scope)
+      .eq('scope_id', scopeId)
+      .order('created_at', { ascending: false })
+      .limit(limit + 1);
+
+    if (cursor) {
+      query = query.lt('created_at', cursor);
+    }
+
+    const { data, error } = await query;
+    if (error) throwSupabaseError('getFactsByScope', error);
+
+    const rows = data ?? [];
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    const facts = page.map(
+      (row) => toCamelCase(row as Record<string, unknown>) as unknown as Fact,
+    );
+    const nextCursor = hasMore && page.length > 0
+      ? (page[page.length - 1] as Record<string, unknown>)['created_at'] as string
+      : null;
+
+    return { data: facts, cursor: nextCursor, hasMore };
   }
 
-  async purgeFacts(_tenantId: string, _scope: string, _scopeId: string): Promise<number> {
-    throw new Error('SupabaseStorageAdapter.purgeFacts() not yet implemented. Coming in Plan 3.');
+  async purgeFacts(tenantId: string, scope: string, scopeId: string): Promise<number> {
+    // First, get the IDs of facts to be purged so we can clean up related tables
+    const { data: factRows, error: fetchError } = await this.client
+      .from('facts')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('scope', scope)
+      .eq('scope_id', scopeId);
+    if (fetchError) throwSupabaseError('purgeFacts', fetchError);
+
+    const factIds = (factRows ?? []).map((row) => (row as Record<string, unknown>)['id'] as string);
+    if (factIds.length === 0) return 0;
+
+    // Delete related fact_entities
+    const { error: feError } = await this.client
+      .from('fact_entities')
+      .delete()
+      .in('fact_id', factIds);
+    if (feError) throwSupabaseError('purgeFacts', feError);
+
+    // Delete related edges (where fact_id references one of these facts)
+    const { error: edgeError } = await this.client
+      .from('edges')
+      .delete()
+      .in('fact_id', factIds);
+    if (edgeError) throwSupabaseError('purgeFacts', edgeError);
+
+    // Delete the facts themselves
+    const { error: deleteError } = await this.client
+      .from('facts')
+      .delete()
+      .eq('tenant_id', tenantId)
+      .eq('scope', scope)
+      .eq('scope_id', scopeId);
+    if (deleteError) throwSupabaseError('purgeFacts', deleteError);
+
+    return factIds.length;
   }
 
   async updateDecayScores(
-    _tenantId: string,
-    _facts: Array<{ id: string; decayScore: number }>,
+    tenantId: string,
+    facts: Array<{ id: string; decayScore: number; lastAccessed?: Date; frequency?: number; importance?: number }>,
   ): Promise<void> {
-    throw new Error('SupabaseStorageAdapter.updateDecayScores() not yet implemented. Coming in Plan 3.');
+    // Batch update each fact's decay_score (and optionally last_accessed, frequency, importance)
+    for (const fact of facts) {
+      const updates: Record<string, unknown> = {
+        decay_score: fact.decayScore,
+      };
+      if (fact.lastAccessed !== undefined) {
+        updates['last_accessed'] = fact.lastAccessed.toISOString();
+      }
+      if (fact.frequency !== undefined) {
+        updates['frequency'] = fact.frequency;
+      }
+      if (fact.importance !== undefined) {
+        updates['importance'] = fact.importance;
+      }
+
+      const { error } = await this.client
+        .from('facts')
+        .update(updates)
+        .eq('tenant_id', tenantId)
+        .eq('id', fact.id);
+      if (error) throwSupabaseError('updateDecayScores', error);
+    }
   }
 
   async keywordSearch(options: KeywordSearchOptions): Promise<KeywordSearchResult[]> {
@@ -801,42 +884,125 @@ export class SupabaseStorageAdapter implements StorageAdapter {
   }
 
   async createMemoryAccess(
-    _access: CreateMemoryAccess & { id: string },
+    access: CreateMemoryAccess & { id: string },
   ): Promise<MemoryAccess> {
-    throw new Error('SupabaseStorageAdapter.createMemoryAccess() not yet implemented. Coming in Plan 3.');
+    const row = toSnakeCase(access as unknown as Record<string, unknown>);
+    const { data, error } = await this.client
+      .from('memory_accesses')
+      .insert(row)
+      .select()
+      .single();
+    if (error) throwSupabaseError('createMemoryAccess', error);
+    return toCamelCase(data as Record<string, unknown>) as unknown as MemoryAccess;
   }
 
   async updateFeedback(
-    _tenantId: string,
-    _factId: string,
-    _feedback: { wasUseful: boolean; feedbackType: string; feedbackDetail?: string },
+    tenantId: string,
+    factId: string,
+    feedback: { wasUseful: boolean; feedbackType: string; feedbackDetail?: string },
   ): Promise<void> {
-    throw new Error('SupabaseStorageAdapter.updateFeedback() not yet implemented. Coming in Plan 3.');
+    // Update the MOST RECENT memory access for this fact
+    const { data: accessRows, error: findError } = await this.client
+      .from('memory_accesses')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('fact_id', factId)
+      .order('accessed_at', { ascending: false })
+      .limit(1);
+    if (findError) throwSupabaseError('updateFeedback', findError);
+    if (!accessRows || accessRows.length === 0) return;
+
+    const accessId = (accessRows[0] as Record<string, unknown>)['id'] as string;
+    const { error } = await this.client
+      .from('memory_accesses')
+      .update({
+        was_useful: feedback.wasUseful,
+        feedback_type: feedback.feedbackType,
+        feedback_detail: feedback.feedbackDetail ?? null,
+      })
+      .eq('id', accessId);
+    if (error) throwSupabaseError('updateFeedback', error);
   }
 
-  async createSession(_session: CreateSession & { id: string }): Promise<Session> {
-    throw new Error('SupabaseStorageAdapter.createSession() not yet implemented. Coming in Plan 3.');
+  async createSession(session: CreateSession & { id: string }): Promise<Session> {
+    const row = toSnakeCase(session as unknown as Record<string, unknown>);
+    const { data, error } = await this.client
+      .from('sessions')
+      .insert(row)
+      .select()
+      .single();
+    if (error) throwSupabaseError('createSession', error);
+    return toCamelCase(data as Record<string, unknown>) as unknown as Session;
   }
 
-  async getSession(_tenantId: string, _id: string): Promise<Session | null> {
-    throw new Error('SupabaseStorageAdapter.getSession() not yet implemented. Coming in Plan 3.');
+  async getSession(tenantId: string, id: string): Promise<Session | null> {
+    const { data, error } = await this.client
+      .from('sessions')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throwSupabaseError('getSession', error);
+    if (!data) return null;
+    return toCamelCase(data as Record<string, unknown>) as unknown as Session;
   }
 
   async endSession(
-    _tenantId: string,
-    _id: string,
-    _summary?: string,
-    _topics?: string[],
+    tenantId: string,
+    id: string,
+    summary?: string,
+    topics?: string[],
   ): Promise<Session> {
-    throw new Error('SupabaseStorageAdapter.endSession() not yet implemented. Coming in Plan 3.');
+    const updates: Record<string, unknown> = {
+      ended_at: new Date().toISOString(),
+    };
+    if (summary !== undefined) updates['summary'] = summary;
+    if (topics !== undefined) updates['topics'] = topics;
+
+    const { data, error } = await this.client
+      .from('sessions')
+      .update(updates)
+      .eq('tenant_id', tenantId)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throwSupabaseError('endSession', error);
+    return toCamelCase(data as Record<string, unknown>) as unknown as Session;
   }
 
   async getSessionsByScope(
-    _tenantId: string,
-    _scope: string,
-    _scopeId: string,
-    _options: PaginationOptions,
+    tenantId: string,
+    scope: string,
+    scopeId: string,
+    options: PaginationOptions,
   ): Promise<PaginatedResult<Session>> {
-    throw new Error('SupabaseStorageAdapter.getSessionsByScope() not yet implemented. Coming in Plan 3.');
+    const { limit, cursor } = options;
+    let query = this.client
+      .from('sessions')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('scope', scope)
+      .eq('scope_id', scopeId)
+      .order('started_at', { ascending: false })
+      .limit(limit + 1);
+
+    if (cursor) {
+      query = query.lt('started_at', cursor);
+    }
+
+    const { data, error } = await query;
+    if (error) throwSupabaseError('getSessionsByScope', error);
+
+    const rows = data ?? [];
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    const sessions = page.map(
+      (row) => toCamelCase(row as Record<string, unknown>) as unknown as Session,
+    );
+    const nextCursor = hasMore && page.length > 0
+      ? (page[page.length - 1] as Record<string, unknown>)['started_at'] as string
+      : null;
+
+    return { data: sessions, cursor: nextCursor, hasMore };
   }
 }
