@@ -712,7 +712,7 @@ describe('search orchestrator', () => {
   });
 
   describe('fire-and-forget operations', () => {
-    it('lazy decay recalculation fires (verify updateDecayScores called)', async () => {
+    it('recordAccesses receives salience config for decay recalculation', async () => {
       const fact = makeFact({ id: 'fact-decay', importance: 0.8, frequency: 5 });
       const searchResult = {
         fact,
@@ -735,23 +735,24 @@ describe('search orchestrator', () => {
       mockSurfaceContradictions.mockResolvedValue([searchResult]);
       mockRecordAccesses.mockResolvedValue(undefined);
 
-      const storage = createMockStorage();
-      const config = makeConfig({ storage });
+      const config = makeConfig({ salienceHalfLifeDays: 14, salienceNormalizationK: 100 });
       await search(config, makeOptions());
 
-      // Wait for fire-and-forget microtask to settle
+      // recordAccesses is called with config containing halfLifeDays and normalizationK
       await vi.waitFor(() => {
-        expect(storage.updateDecayScores).toHaveBeenCalled();
+        expect(mockRecordAccesses).toHaveBeenCalled();
       });
 
-      const updateCall = (storage.updateDecayScores as ReturnType<typeof vi.fn>).mock.calls[0];
-      expect(updateCall[0]).toBe('tenant-1');
-      const updates = updateCall[1];
-      expect(updates).toHaveLength(1);
-      expect(updates[0].id).toBe('fact-decay');
-      expect(updates[0].frequency).toBe(6); // original 5 + 1
-      expect(typeof updates[0].decayScore).toBe('number');
-      expect(updates[0].lastAccessed).toBeInstanceOf(Date);
+      expect(mockRecordAccesses).toHaveBeenCalledWith(
+        config.storage,
+        'tenant-1',
+        expect.any(String),
+        [searchResult],
+        {
+          halfLifeDays: 14,
+          normalizationK: 100,
+        },
+      );
     });
 
     it('memory access recording fires (verify createMemoryAccess called)', async () => {
@@ -790,48 +791,11 @@ describe('search orchestrator', () => {
         'tenant-1',
         'test query for access',
         [searchResult],
+        {
+          halfLifeDays: config.salienceHalfLifeDays,
+          normalizationK: config.salienceNormalizationK,
+        },
       );
-    });
-
-    it('error in fire-and-forget updateDecayScores does not crash search (logged, not thrown)', async () => {
-      const fact = makeFact({ id: 'fact-err' });
-      const searchResult = {
-        fact,
-        score: 0.8,
-        signals: { vectorScore: 0.9, keywordScore: 0, graphScore: 0, recencyScore: 0.5, salienceScore: 0.6 },
-      };
-
-      mockVectorSearch.mockResolvedValue([makeCandidate({ id: 'fact-err' }, { vectorScore: 0.9, source: 'vector' })]);
-      mockKeywordSearch.mockResolvedValue([]);
-      mockGraphSearch.mockResolvedValue([]);
-      mockMatchTriggers.mockResolvedValue({ candidates: [], triggersMatched: [] });
-
-      mockScoreSalience.mockReturnValue([makeCandidate({ id: 'fact-err' }, { vectorScore: 0.9, source: 'vector' })]);
-      mockFuseAndRank.mockReturnValue([{
-        fact,
-        score: 0.8,
-        signals: searchResult.signals,
-        source: 'vector',
-      }]);
-      mockSurfaceContradictions.mockResolvedValue([searchResult]);
-      mockRecordAccesses.mockResolvedValue(undefined);
-
-      const storage = createMockStorage();
-      (storage.updateDecayScores as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('DB write failure'));
-
-      const config = makeConfig({ storage });
-
-      // Should NOT throw
-      const response = await search(config, makeOptions());
-      expect(response.results).toHaveLength(1);
-
-      // Wait for the fire-and-forget promise to settle and log the error
-      await vi.waitFor(() => {
-        expect(consoleSpy).toHaveBeenCalledWith(
-          '[steno] Failed to update decay scores:',
-          expect.any(Error),
-        );
-      });
     });
 
     it('error in fire-and-forget recordAccesses does not crash search (logged, not thrown)', async () => {

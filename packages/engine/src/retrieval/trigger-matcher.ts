@@ -2,6 +2,7 @@ import type { StorageAdapter } from '../adapters/storage.js';
 import type { EmbeddingAdapter } from '../adapters/embedding.js';
 import type { Candidate } from './types.js';
 import type { TriggerCondition } from '../models/trigger.js';
+import { vectorSearch } from './vector-search.js';
 
 export async function matchTriggers(
   storage: StorageAdapter,
@@ -71,6 +72,17 @@ export async function matchTriggers(
         }
       }
 
+      // Handle queryTemplate — run a vector sub-search with the template
+      if (trigger.queryTemplate) {
+        const templateResults = await vectorSearch(
+          storage, embedding, trigger.queryTemplate,
+          tenantId, scope, scopeId, 5
+        );
+        for (const c of templateResults) {
+          candidates.push({ ...c, source: 'trigger' as const, triggeredBy: trigger.id });
+        }
+      }
+
       // Increment trigger fire count (fire and forget)
       void storage.incrementTriggerFired(tenantId, trigger.id).catch(() => {});
     }
@@ -124,6 +136,9 @@ export async function evaluateCondition(
   }
 
   // entity_present: check if entities of given type(s) exist for this tenant
+  // NOTE: entity_present currently checks tenant-wide, not scope-specific.
+  // A scope-filtered version would require joining through fact_entities → facts.
+  // This is acceptable for v1 but should be improved when per-scope entity queries are added.
   if (condition.entity_present && condition.entity_present.length > 0) {
     const entities = await context.storage.getEntitiesForTenant(context.tenantId, { limit: 100 });
     const hasMatchingEntity = entities.data.some((e) =>

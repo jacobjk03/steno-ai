@@ -13,7 +13,10 @@ export async function recordAccesses(
   tenantId: string,
   query: string,
   results: SearchResult[],
+  config?: { halfLifeDays?: number; normalizationK?: number },
 ): Promise<void> {
+  const halfLifeDays = config?.halfLifeDays ?? 30;
+  const normalizationK = config?.normalizationK ?? 50;
   const decayUpdates: Array<{ id: string; decayScore: number; lastAccessed: Date; frequency: number }> = [];
 
   for (let i = 0; i < results.length; i++) {
@@ -38,8 +41,8 @@ export async function recordAccesses(
       importance: result.fact.importance,
       frequency: newFrequency,
       lastAccessed: new Date(),
-      halfLifeDays: 30,  // TODO: get from tenant config
-      normalizationK: 50,
+      halfLifeDays,
+      normalizationK,
     });
 
     decayUpdates.push({
@@ -75,6 +78,7 @@ export async function submitFeedback(
     wasUseful: feedback.wasUseful,
     feedbackType: feedback.feedbackType,
     feedbackDetail: feedback.feedbackDetail,
+    wasCorrected: feedback.feedbackType === 'correction',
   });
 
   // 2. Adjust fact importance based on feedback

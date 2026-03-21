@@ -51,7 +51,7 @@ export async function graphSearch(
   config?: Partial<GraphSearchConfig>,
 ): Promise<Candidate[]> {
   const maxDepth = Math.min(config?.maxDepth ?? DEFAULT_MAX_DEPTH, MAX_ALLOWED_DEPTH);
-  const maxEntities = config?.maxEntities ?? DEFAULT_MAX_ENTITIES;
+  const maxEntities = Math.min(config?.maxEntities ?? DEFAULT_MAX_ENTITIES, 500);
 
   // 1. Tokenize query, find matching entities
   const tokens = tokenizeQuery(query);

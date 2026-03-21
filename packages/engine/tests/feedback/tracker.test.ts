@@ -214,6 +214,24 @@ describe('submitFeedback', () => {
       wasUseful: true,
       feedbackType: 'explicit_positive',
       feedbackDetail: 'Very helpful!',
+      wasCorrected: false,
+    });
+  });
+
+  it('sets wasCorrected to true when feedbackType is correction', async () => {
+    storage.getFact.mockResolvedValue(makeFact({ id: factId, importance: 0.5 }));
+
+    await submitFeedback(storage, tenantId, factId, {
+      wasUseful: false,
+      feedbackType: 'correction',
+      feedbackDetail: 'The fact was wrong',
+    });
+
+    expect(storage.updateFeedback).toHaveBeenCalledWith(tenantId, factId, {
+      wasUseful: false,
+      feedbackType: 'correction',
+      feedbackDetail: 'The fact was wrong',
+      wasCorrected: true,
     });
   });
 

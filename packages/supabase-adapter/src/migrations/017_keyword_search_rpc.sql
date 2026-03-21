@@ -6,7 +6,8 @@ CREATE OR REPLACE FUNCTION keyword_search_facts(
     match_tenant_id UUID,
     match_scope TEXT,
     match_scope_id TEXT,
-    match_count INT
+    match_count INT,
+    match_as_of TIMESTAMPTZ DEFAULT NULL
 )
 RETURNS TABLE (
     id UUID,
@@ -59,7 +60,14 @@ BEGIN
     WHERE f.tenant_id = match_tenant_id
       AND f.scope = match_scope
       AND f.scope_id = match_scope_id
-      AND f.valid_until IS NULL
+      AND (
+        CASE
+          WHEN match_as_of IS NOT NULL THEN
+            f.valid_from <= match_as_of AND (f.valid_until IS NULL OR f.valid_until > match_as_of)
+          ELSE
+            f.valid_until IS NULL
+        END
+      )
       AND f.search_vector @@ plainto_tsquery('english', search_query)
     ORDER BY rank_score DESC
     LIMIT match_count;

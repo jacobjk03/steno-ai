@@ -1,9 +1,18 @@
 import { describe, it, expect, vi } from 'vitest';
+
+vi.mock('../../src/retrieval/vector-search.js', () => ({
+  vectorSearch: vi.fn().mockResolvedValue([]),
+}));
+
 import { matchTriggers, evaluateCondition, cosineSimilarity } from '../../src/retrieval/trigger-matcher.js';
+import { vectorSearch } from '../../src/retrieval/vector-search.js';
 import type { StorageAdapter, PaginatedResult } from '../../src/adapters/storage.js';
 import type { EmbeddingAdapter } from '../../src/adapters/embedding.js';
 import type { Fact, Entity, Trigger } from '../../src/models/index.js';
 import type { TriggerCondition } from '../../src/models/trigger.js';
+import type { Candidate } from '../../src/retrieval/types.js';
+
+const mockVectorSearch = vi.mocked(vectorSearch);
 
 // ---------------------------------------------------------------------------
 // Test data factories
@@ -718,5 +727,68 @@ describe('matchTriggers', () => {
     // Should not throw even though incrementTriggerFired fails
     const result = await matchTriggers(storage, embedding, 'test query', tenantId, scope, scopeId);
     expect(result.candidates).toHaveLength(1);
+  });
+
+  it('runs vector sub-search when trigger has a queryTemplate', async () => {
+    const templateFact = makeFact({ id: 'fact-qt', content: 'template result' });
+    const templateCandidate: Candidate = {
+      fact: templateFact,
+      vectorScore: 0.85,
+      keywordScore: 0,
+      graphScore: 0,
+      recencyScore: 0,
+      salienceScore: 0,
+      source: 'vector',
+    };
+
+    const trigger = makeTrigger({
+      id: 'trigger-qt',
+      condition: { keyword_any: ['food'] },
+      factIds: [],
+      entityIds: [],
+      queryTemplate: 'dietary preferences and restrictions',
+    });
+
+    mockVectorSearch.mockResolvedValueOnce([templateCandidate]);
+
+    const storage = mockStorageAdapter({
+      getActiveTriggers: vi.fn().mockResolvedValue([trigger]),
+      incrementTriggerFired: vi.fn().mockResolvedValue(undefined),
+    });
+    const embedding = mockEmbeddingAdapter();
+
+    const result = await matchTriggers(storage, embedding, 'food info', tenantId, scope, scopeId);
+
+    // vectorSearch should have been called with the query template
+    expect(mockVectorSearch).toHaveBeenCalledWith(
+      storage, embedding, 'dietary preferences and restrictions',
+      tenantId, scope, scopeId, 5,
+    );
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]!.fact.id).toBe('fact-qt');
+    expect(result.candidates[0]!.source).toBe('trigger');
+    expect(result.candidates[0]!.triggeredBy).toBe('trigger-qt');
+  });
+
+  it('does not call vectorSearch when trigger has no queryTemplate', async () => {
+    const trigger = makeTrigger({
+      condition: { keyword_any: ['test'] },
+      factIds: [],
+      entityIds: [],
+      queryTemplate: null,
+    });
+
+    mockVectorSearch.mockClear();
+
+    const storage = mockStorageAdapter({
+      getActiveTriggers: vi.fn().mockResolvedValue([trigger]),
+      incrementTriggerFired: vi.fn().mockResolvedValue(undefined),
+    });
+    const embedding = mockEmbeddingAdapter();
+
+    await matchTriggers(storage, embedding, 'test query', tenantId, scope, scopeId);
+
+    expect(mockVectorSearch).not.toHaveBeenCalled();
   });
 });

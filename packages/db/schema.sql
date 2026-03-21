@@ -498,7 +498,8 @@ CREATE OR REPLACE FUNCTION keyword_search_facts(
     match_tenant_id UUID,
     match_scope TEXT,
     match_scope_id TEXT,
-    match_count INT
+    match_count INT,
+    match_as_of TIMESTAMPTZ DEFAULT NULL
 )
 RETURNS TABLE (
     id UUID,
@@ -551,7 +552,14 @@ BEGIN
     WHERE f.tenant_id = match_tenant_id
       AND f.scope = match_scope
       AND f.scope_id = match_scope_id
-      AND f.valid_until IS NULL
+      AND (
+        CASE
+          WHEN match_as_of IS NOT NULL THEN
+            f.valid_from <= match_as_of AND (f.valid_until IS NULL OR f.valid_until > match_as_of)
+          ELSE
+            f.valid_until IS NULL
+        END
+      )
       AND f.search_vector @@ plainto_tsquery('english', search_query)
     ORDER BY rank_score DESC
     LIMIT match_count;
@@ -565,7 +573,8 @@ CREATE OR REPLACE FUNCTION graph_traverse(
     match_tenant_id UUID,
     seed_entity_ids UUID[],
     max_depth INT DEFAULT 3,
-    max_entities INT DEFAULT 200
+    max_entities INT DEFAULT 200,
+    match_as_of TIMESTAMPTZ DEFAULT NULL
 )
 RETURNS TABLE (
     entity_id UUID,
@@ -604,7 +613,8 @@ BEGIN
             NULL::FLOAT AS edge_weight,
             NULL::TIMESTAMPTZ AS edge_valid_from,
             NULL::TIMESTAMPTZ AS edge_valid_until,
-            NULL::FLOAT AS edge_confidence
+            NULL::FLOAT AS edge_confidence,
+            ARRAY[e.id] AS visited_ids
         FROM entities e
         WHERE e.id = ANY(seed_entity_ids)
           AND e.tenant_id = match_tenant_id
@@ -626,19 +636,32 @@ BEGIN
             ed.weight,
             ed.valid_from,
             ed.valid_until,
-            ed.confidence
+            ed.confidence,
+            t.visited_ids || e2.id
         FROM traversal t
         JOIN edges ed ON (ed.source_id = t.entity_id OR ed.target_id = t.entity_id)
             AND ed.tenant_id = match_tenant_id
-            AND ed.valid_until IS NULL
+            AND (
+              CASE
+                WHEN match_as_of IS NOT NULL THEN
+                  ed.valid_from <= match_as_of AND (ed.valid_until IS NULL OR ed.valid_until > match_as_of)
+                ELSE
+                  ed.valid_until IS NULL
+              END
+            )
         JOIN entities e2 ON e2.id = CASE
             WHEN ed.source_id = t.entity_id THEN ed.target_id
             ELSE ed.source_id
         END
             AND e2.tenant_id = match_tenant_id
         WHERE t.hop_depth < max_depth
+          AND e2.id != ALL(t.visited_ids)
     )
-    SELECT * FROM traversal
+    SELECT
+        entity_id, entity_name, entity_type, canonical_name, properties,
+        hop_depth, edge_id, edge_source_id, edge_target_id, edge_relation,
+        edge_type, edge_weight, edge_valid_from, edge_valid_until, edge_confidence
+    FROM traversal
     LIMIT max_entities;
 END;
 $$;

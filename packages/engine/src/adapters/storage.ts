@@ -117,7 +117,7 @@ export interface StorageAdapter {
 
   // Memory Access (metamemory)
   createMemoryAccess(access: CreateMemoryAccess & { id: string }): Promise<MemoryAccess>;
-  updateFeedback(tenantId: string, factId: string, feedback: { wasUseful: boolean; feedbackType: string; feedbackDetail?: string }): Promise<void>;
+  updateFeedback(tenantId: string, factId: string, feedback: { wasUseful: boolean; feedbackType: string; feedbackDetail?: string; wasCorrected?: boolean }): Promise<void>;
 
   // Extractions
   createExtraction(extraction: CreateExtraction & { id: string }): Promise<Extraction>;

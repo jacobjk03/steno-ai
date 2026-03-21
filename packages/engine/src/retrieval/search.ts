@@ -1,6 +1,6 @@
 import type { StorageAdapter } from '../adapters/storage.js';
 import type { EmbeddingAdapter } from '../adapters/embedding.js';
-import type { SearchOptions, SearchResponse, SearchResult, FusionWeights, Candidate } from './types.js';
+import type { SearchOptions, SearchResponse, FusionWeights, Candidate } from './types.js';
 import { DEFAULT_FUSION_WEIGHTS } from './types.js';
 import { vectorSearch } from './vector-search.js';
 import { keywordSearch } from './keyword-search.js';
@@ -10,7 +10,6 @@ import { scoreSalience } from './salience-scorer.js';
 import { fuseAndRank } from './fusion.js';
 import { surfaceContradictions } from './contradiction-surfacer.js';
 import { recordAccesses } from '../feedback/tracker.js';
-import { calculateDecayScore } from '../salience/decay.js';
 
 export interface SearchConfig {
   storage: StorageAdapter;
@@ -99,15 +98,11 @@ export async function search(
     }
   }
 
-  // 8. Lazy decay recalculation — update accessed facts (fire-and-forget)
-  void updateAccessedFacts(config.storage, options.tenantId, results, {
-    halfLifeDays: config.salienceHalfLifeDays ?? 30,
-    normalizationK: config.salienceNormalizationK ?? 50,
-  }).catch(err => console.error('[steno] Failed to update decay scores:', err));
-
-  // 9. Record memory accesses for metamemory (fire-and-forget)
-  void recordAccesses(config.storage, options.tenantId, options.query, results)
-    .catch(err => console.error('[steno] Failed to record memory accesses:', err));
+  // 8. Record memory accesses for metamemory + update decay scores (fire-and-forget)
+  void recordAccesses(config.storage, options.tenantId, options.query, results, {
+    halfLifeDays: config.salienceHalfLifeDays,
+    normalizationK: config.salienceNormalizationK,
+  }).catch(err => console.error('[steno] Failed to record memory accesses:', err));
 
   return {
     results,
@@ -115,33 +110,4 @@ export async function search(
     totalCandidates: allCandidates.length,
     durationMs: Date.now() - startTime,
   };
-}
-
-/**
- * Lazy decay recalculation — update last_accessed, frequency, and decay_score
- * on all facts that were just retrieved. This ensures actively-used facts
- * maintain fresh scores without waiting for the batch recalculation job.
- */
-async function updateAccessedFacts(
-  storage: StorageAdapter,
-  tenantId: string,
-  results: SearchResult[],
-  config: { halfLifeDays: number; normalizationK: number },
-): Promise<void> {
-  if (results.length === 0) return;
-
-  const updates = results.map(r => ({
-    id: r.fact.id,
-    decayScore: calculateDecayScore({
-      importance: r.fact.importance,
-      frequency: r.fact.frequency + 1,
-      lastAccessed: new Date(),
-      halfLifeDays: config.halfLifeDays,
-      normalizationK: config.normalizationK,
-    }),
-    lastAccessed: new Date(),
-    frequency: r.fact.frequency + 1,
-  }));
-
-  await storage.updateDecayScores(tenantId, updates);
 }
