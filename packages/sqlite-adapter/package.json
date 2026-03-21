@@ -1,0 +1,22 @@
+{
+  "name": "@steno-ai/sqlite-adapter",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@steno-ai/engine": "workspace:*",
+    "better-sqlite3": "^11"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7",
+    "typescript": "^5.7",
+    "vitest": "^3"
+  }
+}
