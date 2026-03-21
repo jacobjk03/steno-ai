@@ -56,6 +56,11 @@ export interface KeywordSearchOptions {
   validOnly?: boolean;
 }
 
+export interface KeywordSearchResult {
+  fact: Fact;
+  rankScore: number;  // ts_rank score from PostgreSQL
+}
+
 export interface GraphTraversalOptions {
   tenantId: string;
   entityIds: string[];
@@ -84,7 +89,7 @@ export interface StorageAdapter {
   vectorSearch(options: VectorSearchOptions): Promise<VectorSearchResult[]>;
 
   // Keyword search
-  keywordSearch(options: KeywordSearchOptions): Promise<Fact[]>;
+  keywordSearch(options: KeywordSearchOptions): Promise<KeywordSearchResult[]>;
 
   // Entities
   createEntity(entity: CreateEntity & { id: string; embedding?: number[]; embeddingModel?: string; embeddingDim?: number }): Promise<Entity>;

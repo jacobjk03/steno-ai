@@ -490,3 +490,155 @@ BEGIN
     LIMIT match_count;
 END;
 $$;
+
+-- Keyword search using PostgreSQL full-text search (tsvector/tsquery)
+-- Returns facts matching the search query with ts_rank scoring.
+CREATE OR REPLACE FUNCTION keyword_search_facts(
+    search_query TEXT,
+    match_tenant_id UUID,
+    match_scope TEXT,
+    match_scope_id TEXT,
+    match_count INT
+)
+RETURNS TABLE (
+    id UUID,
+    tenant_id UUID,
+    scope TEXT,
+    scope_id TEXT,
+    session_id UUID,
+    content TEXT,
+    embedding_model TEXT,
+    embedding_dim INT,
+    version INT,
+    lineage_id UUID,
+    valid_from TIMESTAMPTZ,
+    valid_until TIMESTAMPTZ,
+    operation TEXT,
+    parent_id UUID,
+    importance FLOAT,
+    frequency INT,
+    last_accessed TIMESTAMPTZ,
+    decay_score FLOAT,
+    contradiction_status TEXT,
+    contradicts_id UUID,
+    source_type TEXT,
+    source_ref JSONB,
+    confidence FLOAT,
+    original_content TEXT,
+    extraction_id UUID,
+    extraction_tier TEXT,
+    modality TEXT,
+    tags TEXT[],
+    metadata JSONB,
+    created_at TIMESTAMPTZ,
+    rank_score FLOAT
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        f.id, f.tenant_id, f.scope, f.scope_id, f.session_id,
+        f.content, f.embedding_model, f.embedding_dim,
+        f.version, f.lineage_id, f.valid_from, f.valid_until,
+        f.operation, f.parent_id, f.importance, f.frequency,
+        f.last_accessed, f.decay_score, f.contradiction_status,
+        f.contradicts_id, f.source_type, f.source_ref, f.confidence,
+        f.original_content, f.extraction_id, f.extraction_tier,
+        f.modality, f.tags, f.metadata, f.created_at,
+        ts_rank(f.search_vector, plainto_tsquery('english', search_query)) AS rank_score
+    FROM facts f
+    WHERE f.tenant_id = match_tenant_id
+      AND f.scope = match_scope
+      AND f.scope_id = match_scope_id
+      AND f.valid_until IS NULL
+      AND f.search_vector @@ plainto_tsquery('english', search_query)
+    ORDER BY rank_score DESC
+    LIMIT match_count;
+END;
+$$;
+
+-- Graph traversal using recursive CTE
+-- Walks edges from seed entity IDs up to max_depth hops.
+-- Returns entity and edge information for the traversal path.
+CREATE OR REPLACE FUNCTION graph_traverse(
+    match_tenant_id UUID,
+    seed_entity_ids UUID[],
+    max_depth INT DEFAULT 3,
+    max_entities INT DEFAULT 200
+)
+RETURNS TABLE (
+    entity_id UUID,
+    entity_name TEXT,
+    entity_type TEXT,
+    canonical_name TEXT,
+    properties JSONB,
+    hop_depth INT,
+    edge_id UUID,
+    edge_source_id UUID,
+    edge_target_id UUID,
+    edge_relation TEXT,
+    edge_type TEXT,
+    edge_weight FLOAT,
+    edge_valid_from TIMESTAMPTZ,
+    edge_valid_until TIMESTAMPTZ,
+    edge_confidence FLOAT
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    WITH RECURSIVE traversal AS (
+        SELECT
+            e.id AS entity_id,
+            e.name AS entity_name,
+            e.entity_type,
+            e.canonical_name,
+            e.properties,
+            0 AS hop_depth,
+            NULL::UUID AS edge_id,
+            NULL::UUID AS edge_source_id,
+            NULL::UUID AS edge_target_id,
+            NULL::TEXT AS edge_relation,
+            NULL::TEXT AS edge_type,
+            NULL::FLOAT AS edge_weight,
+            NULL::TIMESTAMPTZ AS edge_valid_from,
+            NULL::TIMESTAMPTZ AS edge_valid_until,
+            NULL::FLOAT AS edge_confidence
+        FROM entities e
+        WHERE e.id = ANY(seed_entity_ids)
+          AND e.tenant_id = match_tenant_id
+
+        UNION ALL
+
+        SELECT
+            e2.id,
+            e2.name,
+            e2.entity_type,
+            e2.canonical_name,
+            e2.properties,
+            t.hop_depth + 1,
+            ed.id,
+            ed.source_id,
+            ed.target_id,
+            ed.relation,
+            ed.edge_type,
+            ed.weight,
+            ed.valid_from,
+            ed.valid_until,
+            ed.confidence
+        FROM traversal t
+        JOIN edges ed ON (ed.source_id = t.entity_id OR ed.target_id = t.entity_id)
+            AND ed.tenant_id = match_tenant_id
+            AND ed.valid_until IS NULL
+        JOIN entities e2 ON e2.id = CASE
+            WHEN ed.source_id = t.entity_id THEN ed.target_id
+            ELSE ed.source_id
+        END
+            AND e2.tenant_id = match_tenant_id
+        WHERE t.hop_depth < max_depth
+    )
+    SELECT * FROM traversal
+    LIMIT max_entities;
+END;
+$$;

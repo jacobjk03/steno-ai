@@ -6,6 +6,7 @@ import type {
   VectorSearchOptions,
   VectorSearchResult,
   KeywordSearchOptions,
+  KeywordSearchResult,
   GraphTraversalOptions,
   GraphTraversalResult,
 } from '@steno-ai/engine';
@@ -527,8 +528,27 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     throw new Error('SupabaseStorageAdapter.updateDecayScores() not yet implemented. Coming in Plan 3.');
   }
 
-  async keywordSearch(_options: KeywordSearchOptions): Promise<Fact[]> {
-    throw new Error('SupabaseStorageAdapter.keywordSearch() not yet implemented. Coming in Plan 3.');
+  async keywordSearch(options: KeywordSearchOptions): Promise<KeywordSearchResult[]> {
+    const { query, tenantId, scope, scopeId, limit } = options;
+
+    const { data, error } = await this.client.rpc('keyword_search_facts', {
+      search_query: query,
+      match_tenant_id: tenantId,
+      match_scope: scope,
+      match_scope_id: scopeId,
+      match_count: limit,
+    });
+
+    if (error) throwSupabaseError('keywordSearch', error);
+
+    return (data ?? []).map((row: Record<string, unknown>) => {
+      const rankScore = row['rank_score'] as number;
+      const converted = toCamelCase(row);
+      return {
+        fact: converted as unknown as Fact,
+        rankScore,
+      };
+    });
   }
 
   async getEntitiesForTenant(
@@ -566,8 +586,19 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     throw new Error('SupabaseStorageAdapter.getTrigger() not yet implemented. Coming in Plan 3.');
   }
 
-  async getActiveTriggers(_tenantId: string, _scope: string, _scopeId: string): Promise<Trigger[]> {
-    throw new Error('SupabaseStorageAdapter.getActiveTriggers() not yet implemented. Coming in Plan 3.');
+  async getActiveTriggers(tenantId: string, scope: string, scopeId: string): Promise<Trigger[]> {
+    const { data, error } = await this.client
+      .from('triggers')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('scope', scope)
+      .eq('scope_id', scopeId)
+      .eq('active', true)
+      .order('priority', { ascending: false });
+    if (error) throwSupabaseError('getActiveTriggers', error);
+    return (data ?? []).map(
+      (row) => toCamelCase(row as Record<string, unknown>) as unknown as Trigger,
+    );
   }
 
   async updateTrigger(
