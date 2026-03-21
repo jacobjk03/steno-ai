@@ -4,3 +4,4 @@ export * from './models/index.js';
 export * from './adapters/index.js';
 export * from './salience/index.js';
 export * from './auth/index.js';
+export * from './extraction/index.js';
