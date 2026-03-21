@@ -4,6 +4,26 @@ import { getAdapters } from '../lib/context.js';
 
 export function authMiddleware(requiredScope?: string): MiddlewareHandler {
   return async (c, next) => {
+    // Idempotent: if already authenticated (global auth ran), just check scope
+    const existingTenantId = c.get('tenantId');
+    if (existingTenantId) {
+      if (requiredScope && !(c.get('apiKeyScopes') as readonly string[]).includes(requiredScope)) {
+        return c.json(
+          {
+            error: {
+              code: 'forbidden',
+              message: `API key does not have required scope: ${requiredScope}`,
+              status: 403,
+              request_id: c.get('requestId'),
+            },
+          },
+          403,
+        );
+      }
+      await next();
+      return;
+    }
+
     // 1. Extract Bearer token from Authorization header
     const authHeader = c.req.header('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
