@@ -1,5 +1,6 @@
 import type { Env } from '../env.js';
 import { createAdapters } from '../lib/adapters.js';
+import { dispatchWebhookEvent } from '../lib/webhook-dispatch.js';
 import { runExtractionFromQueue } from '@steno-ai/engine';
 import type { ExtractionInput, Scope } from '@steno-ai/engine';
 
@@ -43,13 +44,18 @@ export async function handleExtractionQueue(
 
       await runExtractionFromQueue(config, msg.extractionId, input);
 
-      // TODO: Deliver webhook on success (extraction.completed)
+      await dispatchWebhookEvent(env, msg.tenantId, 'extraction.completed', {
+        extraction_id: msg.extractionId,
+      });
 
       message.ack();
     } catch (err) {
       console.error(`[steno] Extraction failed for ${msg.extractionId}:`, err);
 
-      // TODO: Deliver webhook on failure (extraction.failed)
+      await dispatchWebhookEvent(env, msg.tenantId, 'extraction.failed', {
+        extraction_id: msg.extractionId,
+        error: String(err),
+      });
 
       message.retry();
     }
