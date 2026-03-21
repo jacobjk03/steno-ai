@@ -83,7 +83,7 @@ export interface StorageAdapter {
   getFactsByScope(tenantId: string, scope: string, scopeId: string, options: PaginationOptions): Promise<PaginatedResult<Fact>>;
   invalidateFact(tenantId: string, id: string): Promise<void>;
   purgeFacts(tenantId: string, scope: string, scopeId: string): Promise<number>;
-  updateDecayScores(tenantId: string, facts: Array<{ id: string; decayScore: number }>): Promise<void>;
+  updateDecayScores(tenantId: string, facts: Array<{ id: string; decayScore: number; lastAccessed?: Date; frequency?: number; importance?: number }>): Promise<void>;
 
   // Vector search
   vectorSearch(options: VectorSearchOptions): Promise<VectorSearchResult[]>;
