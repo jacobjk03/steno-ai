@@ -7,3 +7,4 @@ export { matchTriggers, evaluateCondition, cosineSimilarity } from './trigger-ma
 export { scoreSalience, type SalienceConfig } from './salience-scorer.js';
 export { fuseAndRank, type FusionResult } from './fusion.js';
 export { surfaceContradictions, buildTimeline } from './contradiction-surfacer.js';
+export { search, type SearchConfig } from './search.js';
