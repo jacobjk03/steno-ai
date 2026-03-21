@@ -1,0 +1,19 @@
+{
+  "name": "@steno-ai/supabase-adapter",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@steno-ai/engine": "workspace:*",
+    "@supabase/supabase-js": "^2"
+  },
+  "devDependencies": { "typescript": "^5.7", "vitest": "^3" }
+}
