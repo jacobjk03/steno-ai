@@ -18,6 +18,8 @@ import type {
   ApiKey,
   CreateApiKey,
   UsageRecord,
+  Webhook,
+  CreateWebhook,
 } from '../models/index.js';
 
 export interface PaginationOptions {
@@ -126,6 +128,7 @@ export interface StorageAdapter {
   getExtraction(tenantId: string, id: string): Promise<Extraction | null>;
   updateExtraction(tenantId: string, id: string, updates: Partial<Extraction>): Promise<Extraction>;
   getExtractionByHash(tenantId: string, inputHash: string): Promise<Extraction | null>;
+  getExtractionsByTenant(tenantId: string, options: PaginationOptions): Promise<PaginatedResult<Extraction>>;
 
   // Sessions
   createSession(session: CreateSession & { id: string }): Promise<Session>;
@@ -150,6 +153,13 @@ export interface StorageAdapter {
   incrementUsage(tenantId: string, tokens: number, queries: number, extractions: number, costUsd: number): Promise<void>;
   getUsage(tenantId: string, periodStart: Date): Promise<UsageRecord | null>;
   getCurrentUsage(tenantId: string): Promise<UsageRecord | null>;
+
+  // Webhooks
+  createWebhook(webhook: CreateWebhook & { id: string; secretHash: string }): Promise<Webhook>;
+  getWebhook(tenantId: string, id: string): Promise<Webhook | null>;
+  getWebhooksForTenant(tenantId: string): Promise<Webhook[]>;
+  getWebhooksByEvent(tenantId: string, event: string): Promise<Webhook[]>;
+  deleteWebhook(tenantId: string, id: string): Promise<void>;
 
   // Health
   ping(): Promise<boolean>;

@@ -239,6 +239,19 @@ CREATE TABLE usage_records (
 );
 
 -- =============================================================================
+-- 12. webhooks
+-- =============================================================================
+CREATE TABLE webhooks (
+    id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id       UUID        NOT NULL REFERENCES tenants(id),
+    url             TEXT        NOT NULL,
+    events          TEXT[]      NOT NULL,
+    secret_hash     TEXT        NOT NULL,
+    active          BOOLEAN     NOT NULL DEFAULT TRUE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- =============================================================================
 -- INDEXES
 -- =============================================================================
 
@@ -277,6 +290,8 @@ CREATE INDEX idx_memory_accesses_tenant_id ON memory_accesses (tenant_id);
 CREATE INDEX idx_memory_accesses_fact_id   ON memory_accesses (fact_id);
 CREATE INDEX idx_memory_accesses_trigger_id ON memory_accesses (trigger_id);
 CREATE INDEX idx_usage_records_tenant_id   ON usage_records  (tenant_id);
+CREATE INDEX idx_webhooks_tenant           ON webhooks       (tenant_id);
+CREATE INDEX idx_webhooks_active           ON webhooks       (tenant_id, active) WHERE active = TRUE;
 
 -- B-tree indexes: scope / scope_id lookups
 CREATE INDEX idx_sessions_scope_scope_id      ON sessions    (scope, scope_id);
@@ -343,6 +358,7 @@ ALTER TABLE edges           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE triggers        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE memory_accesses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE usage_records   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE webhooks        ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY tenant_isolation ON tenants
     USING (id = current_setting('app.current_tenant_id')::uuid);
@@ -381,6 +397,9 @@ CREATE POLICY tenant_isolation ON memory_accesses
     USING (tenant_id = current_setting('app.current_tenant_id')::uuid);
 
 CREATE POLICY tenant_isolation ON usage_records
+    USING (tenant_id = current_setting('app.current_tenant_id')::uuid);
+
+CREATE POLICY tenant_isolation ON webhooks
     USING (tenant_id = current_setting('app.current_tenant_id')::uuid);
 
 -- =============================================================================

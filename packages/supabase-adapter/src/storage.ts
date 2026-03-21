@@ -30,6 +30,8 @@ import type {
   ApiKey,
   CreateApiKey,
   UsageRecord,
+  Webhook,
+  CreateWebhook,
 } from '@steno-ai/engine';
 
 // =============================================================================
@@ -261,6 +263,38 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     if (error) throwSupabaseError('getExtractionByHash', error);
     if (!data) return null;
     return toCamelCase(data as Record<string, unknown>) as unknown as Extraction;
+  }
+
+  async getExtractionsByTenant(
+    tenantId: string,
+    options: PaginationOptions,
+  ): Promise<PaginatedResult<Extraction>> {
+    const { limit, cursor } = options;
+    let query = this.client
+      .from('extractions')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .order('created_at', { ascending: false })
+      .limit(limit + 1);
+
+    if (cursor) {
+      query = query.lt('created_at', cursor);
+    }
+
+    const { data, error } = await query;
+    if (error) throwSupabaseError('getExtractionsByTenant', error);
+
+    const rows = data ?? [];
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    const extractions = page.map(
+      (row) => toCamelCase(row as Record<string, unknown>) as unknown as Extraction,
+    );
+    const nextCursor = hasMore && page.length > 0
+      ? (page[page.length - 1] as Record<string, unknown>)['created_at'] as string
+      : null;
+
+    return { data: extractions, cursor: nextCursor, hasMore };
   }
 
   // ---------------------------------------------------------------------------
@@ -1007,5 +1041,70 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       : null;
 
     return { data: sessions, cursor: nextCursor, hasMore };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Webhooks
+  // ---------------------------------------------------------------------------
+
+  async createWebhook(
+    webhook: CreateWebhook & { id: string; secretHash: string },
+  ): Promise<Webhook> {
+    // CreateWebhook has `secret` but we don't store the raw secret — only secretHash.
+    // Strip `secret` before inserting; it's not a DB column.
+    const { secret: _secret, ...rest } = webhook;
+    const row = toSnakeCase(rest as unknown as Record<string, unknown>);
+    const { data, error } = await this.client
+      .from('webhooks')
+      .insert(row)
+      .select()
+      .single();
+    if (error) throwSupabaseError('createWebhook', error);
+    return toCamelCase(data as Record<string, unknown>) as unknown as Webhook;
+  }
+
+  async getWebhook(tenantId: string, id: string): Promise<Webhook | null> {
+    const { data, error } = await this.client
+      .from('webhooks')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throwSupabaseError('getWebhook', error);
+    if (!data) return null;
+    return toCamelCase(data as Record<string, unknown>) as unknown as Webhook;
+  }
+
+  async getWebhooksForTenant(tenantId: string): Promise<Webhook[]> {
+    const { data, error } = await this.client
+      .from('webhooks')
+      .select('*')
+      .eq('tenant_id', tenantId);
+    if (error) throwSupabaseError('getWebhooksForTenant', error);
+    return (data ?? []).map(
+      (row) => toCamelCase(row as Record<string, unknown>) as unknown as Webhook,
+    );
+  }
+
+  async getWebhooksByEvent(tenantId: string, event: string): Promise<Webhook[]> {
+    const { data, error } = await this.client
+      .from('webhooks')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('active', true)
+      .contains('events', [event]);
+    if (error) throwSupabaseError('getWebhooksByEvent', error);
+    return (data ?? []).map(
+      (row) => toCamelCase(row as Record<string, unknown>) as unknown as Webhook,
+    );
+  }
+
+  async deleteWebhook(tenantId: string, id: string): Promise<void> {
+    const { error } = await this.client
+      .from('webhooks')
+      .delete()
+      .eq('tenant_id', tenantId)
+      .eq('id', id);
+    if (error) throwSupabaseError('deleteWebhook', error);
   }
 }
