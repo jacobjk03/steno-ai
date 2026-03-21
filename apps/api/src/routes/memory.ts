@@ -1,6 +1,5 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import type { MiddlewareHandler } from 'hono';
 import type { Env } from '../env.js';
 import type { AppVariables } from '../app.js';
 import { getAdapters } from '../lib/context.js';
@@ -10,23 +9,8 @@ import {
   acceptedResponse,
 } from '../lib/response.js';
 import { toSnakeCaseWire } from '../lib/wire-format.js';
-import { validate } from '../middleware/validate.js';
-import { notFound, conflict, badRequest, forbidden } from '../middleware/error-handler.js';
+import { authMiddleware, validate, notFound, conflict, badRequest } from '../middleware/index.js';
 import { hashInput, inputToText } from '@steno-ai/engine';
-
-// ---------------------------------------------------------------------------
-// Scope guard — checks apiKeyScopes already set by authMiddleware upstream
-// ---------------------------------------------------------------------------
-
-function requireScope(scope: string): MiddlewareHandler {
-  return async (c, next) => {
-    const scopes = c.get('apiKeyScopes' as never) as string[] | undefined;
-    if (!scopes || !scopes.includes(scope)) {
-      throw forbidden(`This endpoint requires the '${scope}' scope`);
-    }
-    await next();
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -73,7 +57,7 @@ const memory = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
 memory.post(
   '/',
-  requireScope('write'),
+  authMiddleware('write'),
   validate(MemoryInputSchema),
   async (c) => {
     const body = c.get('validatedBody') as z.infer<typeof MemoryInputSchema>;
@@ -142,7 +126,7 @@ memory.post(
 
 memory.post(
   '/batch',
-  requireScope('write'),
+  authMiddleware('write'),
   validate(BatchMemoryInputSchema),
   async (c) => {
     const body = c.get('validatedBody') as z.infer<
@@ -196,7 +180,7 @@ memory.post(
 // GET /  — List facts (paginated)
 // ---------------------------------------------------------------------------
 
-memory.get('/', requireScope('read'), async (c) => {
+memory.get('/', authMiddleware('read'), async (c) => {
   const scope = c.req.query('scope');
   const scopeId = c.req.query('scope_id');
 
@@ -227,7 +211,7 @@ memory.get('/', requireScope('read'), async (c) => {
 // DELETE /purge  — GDPR hard delete
 // ---------------------------------------------------------------------------
 
-memory.delete('/purge', requireScope('admin'), async (c) => {
+memory.delete('/purge', authMiddleware('admin'), async (c) => {
   const scope = c.req.query('scope');
   const scopeId = c.req.query('scope_id');
 
@@ -247,7 +231,7 @@ memory.delete('/purge', requireScope('admin'), async (c) => {
 // GET /:id  — Get specific fact
 // ---------------------------------------------------------------------------
 
-memory.get('/:id', requireScope('read'), async (c) => {
+memory.get('/:id', authMiddleware('read'), async (c) => {
   const id = c.req.param('id');
   const tenantId = c.get('tenantId');
   const adapters = getAdapters(c);
@@ -264,7 +248,7 @@ memory.get('/:id', requireScope('read'), async (c) => {
 // DELETE /:id  — Soft delete (invalidate)
 // ---------------------------------------------------------------------------
 
-memory.delete('/:id', requireScope('write'), async (c) => {
+memory.delete('/:id', authMiddleware('write'), async (c) => {
   const id = c.req.param('id');
   const tenantId = c.get('tenantId');
   const adapters = getAdapters(c);
@@ -284,7 +268,7 @@ memory.delete('/:id', requireScope('write'), async (c) => {
 // GET /:id/history  — Fact lineage
 // ---------------------------------------------------------------------------
 
-memory.get('/:id/history', requireScope('read'), async (c) => {
+memory.get('/:id/history', authMiddleware('read'), async (c) => {
   const id = c.req.param('id');
   const tenantId = c.get('tenantId');
   const adapters = getAdapters(c);
@@ -309,7 +293,7 @@ memory.get('/:id/history', requireScope('read'), async (c) => {
 
 const exportRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
-exportRoutes.get('/', requireScope('admin'), async (c) => {
+exportRoutes.get('/', authMiddleware('admin'), async (c) => {
   const scope = c.req.query('scope');
   const scopeId = c.req.query('scope_id');
   const format = c.req.query('format') ?? 'json';

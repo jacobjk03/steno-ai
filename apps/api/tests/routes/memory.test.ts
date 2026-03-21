@@ -5,6 +5,14 @@ import type { AppVariables } from '../../src/app.js';
 import type { Env } from '../../src/env.js';
 import type { Adapters } from '../../src/lib/adapters.js';
 import { globalErrorHandler } from '../../src/middleware/error-handler.js';
+
+// Mock auth middleware to bypass authentication in route tests
+vi.mock('../../src/middleware/auth.js', () => ({
+  authMiddleware: () => async (_c: unknown, next: () => Promise<void>) => {
+    await next();
+  },
+}));
+
 import { memoryRoutes, exportRoutes } from '../../src/routes/memory.js';
 
 // ---------------------------------------------------------------------------
