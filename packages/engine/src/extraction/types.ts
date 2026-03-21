@@ -23,6 +23,8 @@ export interface ExtractedFact {
   operation?: 'add' | 'update' | 'invalidate' | 'noop' | 'contradict';
   existingLineageId?: string;
   contradictsFactId?: string;
+  /** Canonical names of entities mentioned in THIS fact (for precise fact-entity linking) */
+  entityCanonicalNames?: string[];
 }
 
 export interface ExtractedEntity {

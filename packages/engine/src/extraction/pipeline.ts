@@ -125,7 +125,7 @@ export async function runExtractionPipeline(
   try {
     let totalTokensInput = 0;
     let totalTokensOutput = 0;
-    let tiersUsed: string[] = [];
+    const tiersUsed: string[] = [];
 
     // 5. Convert input to text (already done above)
     // textContent is ready
@@ -301,9 +301,22 @@ export async function runExtractionPipeline(
         factsCreated++;
       }
 
-      // Link all entities to this fact (entities were already created once above).
-      for (const entityId of entityIdMap.values()) {
-        await config.storage.linkFactEntity(factId, entityId, 'mentioned');
+      // Link only the entities that THIS fact mentions (not all entities).
+      // If the fact has entityCanonicalNames, use those for precise linking.
+      // Otherwise fall back to linking all entities (backward compat).
+      const relevantNames = fact.entityCanonicalNames;
+      if (relevantNames && relevantNames.length > 0) {
+        for (const name of relevantNames) {
+          const entityId = entityIdMap.get(name);
+          if (entityId) {
+            await config.storage.linkFactEntity(factId, entityId, 'mentioned');
+          }
+        }
+      } else {
+        // Fallback: link all entities (heuristic facts without per-fact entity tracking)
+        for (const entityId of entityIdMap.values()) {
+          await config.storage.linkFactEntity(factId, entityId, 'mentioned');
+        }
       }
     }
 

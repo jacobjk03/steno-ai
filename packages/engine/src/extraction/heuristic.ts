@@ -159,6 +159,7 @@ function makeFact(
   importance: number,
   confidence: number,
   tags: string[],
+  entityCanonicalNames: string[] = [],
 ): ExtractedFact {
   return {
     content,
@@ -169,6 +170,7 @@ function makeFact(
     tags,
     originalContent,
     operation: 'add',
+    entityCanonicalNames,
   };
 }
 

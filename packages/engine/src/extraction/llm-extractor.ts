@@ -67,7 +67,10 @@ export async function extractWithLLM(
         typeof fact.existing_lineage_id === 'string' ? fact.existing_lineage_id : undefined,
       contradictsFactId:
         typeof fact.contradicts_fact_id === 'string' ? fact.contradicts_fact_id : undefined,
+      entityCanonicalNames: [] as string[], // populated below
     });
+
+    const currentFact = facts[facts.length - 1]!;
 
     // Extract entities from this fact
     if (Array.isArray(fact.entities)) {
@@ -84,6 +87,7 @@ export async function extractWithLLM(
             properties: {},
           });
         }
+        currentFact.entityCanonicalNames!.push(canonical);
       }
     }
 
