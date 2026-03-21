@@ -39,9 +39,9 @@ INSERT INTO api_keys (
     '00000000-0000-0000-0000-000000000002',
     '00000000-0000-0000-0000-000000000001',
     'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', -- SHA-256 of empty string (placeholder)
-    'stno_test',
+    'sk_steno_tes',
     'Development Key',
-    ARRAY['facts:read', 'facts:write', 'entities:read', 'entities:write', 'sessions:read', 'sessions:write'],
+    ARRAY['read', 'write', 'admin'],
     TRUE
 ) ON CONFLICT DO NOTHING;
 

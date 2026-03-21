@@ -5,7 +5,7 @@ export const SessionSchema = z.object({
   id: z.string().uuid(),
   tenantId: z.string().uuid(),
   scope: z.enum(SESSION_SCOPES),
-  scopeId: z.string().uuid(),
+  scopeId: z.string().min(1),
   startedAt: z.coerce.date(),
   endedAt: z.coerce.date().nullable(),
   summary: z.string().nullable(),
@@ -21,7 +21,7 @@ export type Session = z.infer<typeof SessionSchema>;
 export const CreateSessionSchema = z.object({
   tenantId: z.string().uuid(),
   scope: z.enum(SESSION_SCOPES),
-  scopeId: z.string().uuid(),
+  scopeId: z.string().min(1),
   metadata: z.record(z.string(), z.unknown()).default({}),
 });
 

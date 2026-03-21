@@ -6,11 +6,11 @@ export const ExtractionSchema = z.object({
   tenantId: z.string().uuid(),
   status: z.enum(EXTRACTION_STATUSES),
   inputType: z.enum(INPUT_TYPES),
-  inputData: z.string().nullable(),
+  inputData: z.record(z.unknown()).nullable(),
   inputHash: z.string(),
   inputSize: z.number().int().nonnegative().nullable(),
   scope: z.enum(SCOPES),
-  scopeId: z.string().uuid(),
+  scopeId: z.string().min(1),
   sessionId: z.string().uuid().nullable(),
   tierUsed: z.enum(EXTRACTION_TIERS_USED).nullable(),
   llmModel: z.string().nullable(),
@@ -38,7 +38,7 @@ export const CreateExtractionSchema = z.object({
   inputHash: z.string(),
   inputSize: z.number().int().nonnegative().optional(),
   scope: z.enum(SCOPES),
-  scopeId: z.string().uuid(),
+  scopeId: z.string().min(1),
   sessionId: z.string().uuid().optional(),
 });
 

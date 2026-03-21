@@ -11,7 +11,7 @@ const baseEdge = {
   relation: 'knows',
   edgeType: 'associative' as const,
   weight: 1.0,
-  validFrom: null,
+  validFrom: new Date('2024-01-01'),
   validUntil: null,
   factId: null,
   confidence: 0.8,
@@ -63,9 +63,20 @@ describe('EdgeSchema', () => {
     expect(EdgeSchema.safeParse({ ...baseEdge, confidence: 1 }).success).toBe(true);
   });
 
-  it('accepts nullable validFrom and validUntil', () => {
-    const result = EdgeSchema.safeParse({ ...baseEdge, validFrom: null, validUntil: null });
+  it('accepts nullable validUntil', () => {
+    const result = EdgeSchema.safeParse({ ...baseEdge, validUntil: null });
     expect(result.success).toBe(true);
+  });
+
+  it('coerces null validFrom to Date (epoch) — NOT nullable in type', () => {
+    // z.coerce.date() will coerce null to new Date(0) (epoch).
+    // The schema intentionally does NOT have .nullable() so the TypeScript
+    // type enforces a Date value; the SQL column is NOT NULL DEFAULT NOW().
+    const result = EdgeSchema.safeParse({ ...baseEdge, validFrom: null });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.validFrom).toBeInstanceOf(Date);
+    }
   });
 
   it('accepts nullable factId', () => {

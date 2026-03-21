@@ -64,7 +64,7 @@ RETURNS TABLE (
     contradiction_status TEXT,
     contradicts_id UUID,
     source_type TEXT,
-    source_ref JSONB,
+    source_ref TEXT,
     confidence FLOAT,
     original_content TEXT,
     extraction_id UUID,

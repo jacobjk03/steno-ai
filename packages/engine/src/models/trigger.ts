@@ -30,7 +30,7 @@ export const TriggerSchema = z.object({
   id: z.string().uuid(),
   tenantId: z.string().uuid(),
   scope: z.enum(SCOPES),
-  scopeId: z.string().uuid(),
+  scopeId: z.string().min(1),
   condition: TriggerConditionSchema,
   factIds: z.array(z.string().uuid()),
   entityIds: z.array(z.string().uuid()),
@@ -47,7 +47,7 @@ export type Trigger = z.infer<typeof TriggerSchema>;
 export const CreateTriggerSchema = z.object({
   tenantId: z.string().uuid(),
   scope: z.enum(SCOPES),
-  scopeId: z.string().uuid(),
+  scopeId: z.string().min(1),
   condition: TriggerConditionSchema,
   factIds: z.array(z.string().uuid()).default([]),
   entityIds: z.array(z.string().uuid()).default([]),
