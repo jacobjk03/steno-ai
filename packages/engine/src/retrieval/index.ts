@@ -6,3 +6,4 @@ export type { GraphSearchConfig } from './graph-traversal.js';
 export { matchTriggers, evaluateCondition, cosineSimilarity } from './trigger-matcher.js';
 export { scoreSalience, type SalienceConfig } from './salience-scorer.js';
 export { fuseAndRank, type FusionResult } from './fusion.js';
+export { surfaceContradictions, buildTimeline } from './contradiction-surfacer.js';
