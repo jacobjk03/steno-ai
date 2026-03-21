@@ -16,6 +16,7 @@
     "@steno-ai/openai-adapter": "workspace:*",
     "@steno-ai/cache-adapter": "workspace:*",
     "hono": "^4",
+    "zod": "^3.23",
     "@upstash/ratelimit": "^2",
     "@upstash/redis": "^1"
   },

@@ -9,6 +9,7 @@ export interface AppVariables {
   tenantPlan: string;
   apiKeyScopes: string[];
   adapters: Adapters;
+  validatedBody: unknown;
 }
 
 export type AppType = Hono<{ Bindings: Env; Variables: AppVariables }>;
