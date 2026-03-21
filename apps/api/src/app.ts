@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import type { Env } from './env.js';
+import type { Adapters } from './lib/adapters.js';
 
 // Context variables set by middleware
 export interface AppVariables {
@@ -7,6 +8,7 @@ export interface AppVariables {
   tenantId: string;
   tenantPlan: string;
   apiKeyScopes: string[];
+  adapters: Adapters;
 }
 
 export type AppType = Hono<{ Bindings: Env; Variables: AppVariables }>;
