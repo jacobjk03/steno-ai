@@ -15,6 +15,7 @@ import { deduplicateFacts } from './dedup.js';
 import { processContradictions } from './contradiction.js';
 import { buildEntityIdMap, persistEdges } from './entity-extractor.js';
 import { hashInput } from './hasher.js';
+import { updateScratchpad } from '../scratchpad/scratchpad.js';
 
 export interface PipelineConfig {
   storage: StorageAdapter;
@@ -376,6 +377,19 @@ async function executeExtraction(
     durationMs,
     completedAt: new Date(),
   });
+
+  // Update scratchpad with newly extracted facts
+  try {
+    const factContents = contradictionResults
+      .filter(r => r.fact.operation !== 'noop')
+      .map(r => r.fact.content);
+
+    if (factContents.length > 0) {
+      await updateScratchpad(config.storage, config.cheapLLM, input.tenantId, input.scope, input.scopeId, factContents);
+    }
+  } catch {
+    // Scratchpad update failure should not break the pipeline
+  }
 
   // Increment usage
   await config.storage.incrementUsage(
