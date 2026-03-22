@@ -1,0 +1,7 @@
+{
+  "name": "@steno-ai/openclaw-plugin",
+  "version": "0.1.0",
+  "description": "Steno memory plugin for OpenClaw AI coding assistant",
+  "type": "module",
+  "files": ["SKILL.md", "hooks/", "README.md"]
+}
