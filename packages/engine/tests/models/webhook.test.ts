@@ -9,6 +9,7 @@ const baseWebhook = {
   url: 'https://example.com/webhook',
   events: ['extraction.completed'] as const,
   secretHash: 'sha256hashvalue',
+  signingKey: 'raw-secret-for-hmac-signing',
   active: true,
   createdAt: new Date('2024-01-01'),
 };
