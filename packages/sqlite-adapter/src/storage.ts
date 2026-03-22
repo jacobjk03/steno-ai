@@ -584,24 +584,44 @@ export class SQLiteStorageAdapter implements StorageAdapter {
     options: PaginationOptions,
   ): Promise<PaginatedResult<Fact>> {
     const { limit, cursor } = options;
+    const wildcard = scopeId === '*';
 
     let rows: Record<string, unknown>[];
     if (cursor) {
       const cur = decodeCursor(cursor);
-      rows = this.db
-        .prepare(
-          `SELECT * FROM facts WHERE tenant_id = ? AND scope = ? AND scope_id = ?
-           AND (created_at < ? OR (created_at = ? AND id < ?))
-           ORDER BY created_at DESC, id DESC LIMIT ?`,
-        )
-        .all(tenantId, scope, scopeId, cur.ts, cur.ts, cur.id, limit + 1) as Record<string, unknown>[];
+      if (wildcard) {
+        rows = this.db
+          .prepare(
+            `SELECT * FROM facts WHERE tenant_id = ? AND scope = ?
+             AND (created_at < ? OR (created_at = ? AND id < ?))
+             ORDER BY created_at DESC, id DESC LIMIT ?`,
+          )
+          .all(tenantId, scope, cur.ts, cur.ts, cur.id, limit + 1) as Record<string, unknown>[];
+      } else {
+        rows = this.db
+          .prepare(
+            `SELECT * FROM facts WHERE tenant_id = ? AND scope = ? AND scope_id = ?
+             AND (created_at < ? OR (created_at = ? AND id < ?))
+             ORDER BY created_at DESC, id DESC LIMIT ?`,
+          )
+          .all(tenantId, scope, scopeId, cur.ts, cur.ts, cur.id, limit + 1) as Record<string, unknown>[];
+      }
     } else {
-      rows = this.db
-        .prepare(
-          `SELECT * FROM facts WHERE tenant_id = ? AND scope = ? AND scope_id = ?
-           ORDER BY created_at DESC, id DESC LIMIT ?`,
-        )
-        .all(tenantId, scope, scopeId, limit + 1) as Record<string, unknown>[];
+      if (wildcard) {
+        rows = this.db
+          .prepare(
+            `SELECT * FROM facts WHERE tenant_id = ? AND scope = ?
+             ORDER BY created_at DESC, id DESC LIMIT ?`,
+          )
+          .all(tenantId, scope, limit + 1) as Record<string, unknown>[];
+      } else {
+        rows = this.db
+          .prepare(
+            `SELECT * FROM facts WHERE tenant_id = ? AND scope = ? AND scope_id = ?
+             ORDER BY created_at DESC, id DESC LIMIT ?`,
+          )
+          .all(tenantId, scope, scopeId, limit + 1) as Record<string, unknown>[];
+      }
     }
 
     const hasMore = rows.length > limit;
@@ -1428,24 +1448,44 @@ export class SQLiteStorageAdapter implements StorageAdapter {
     options: PaginationOptions,
   ): Promise<PaginatedResult<Session>> {
     const { limit, cursor } = options;
+    const wildcard = scopeId === '*';
 
     let rows: Record<string, unknown>[];
     if (cursor) {
       const cur = decodeCursor(cursor);
-      rows = this.db
-        .prepare(
-          `SELECT * FROM sessions WHERE tenant_id = ? AND scope = ? AND scope_id = ?
-           AND (started_at < ? OR (started_at = ? AND id < ?))
-           ORDER BY started_at DESC, id DESC LIMIT ?`,
-        )
-        .all(tenantId, scope, scopeId, cur.ts, cur.ts, cur.id, limit + 1) as Record<string, unknown>[];
+      if (wildcard) {
+        rows = this.db
+          .prepare(
+            `SELECT * FROM sessions WHERE tenant_id = ? AND scope = ?
+             AND (started_at < ? OR (started_at = ? AND id < ?))
+             ORDER BY started_at DESC, id DESC LIMIT ?`,
+          )
+          .all(tenantId, scope, cur.ts, cur.ts, cur.id, limit + 1) as Record<string, unknown>[];
+      } else {
+        rows = this.db
+          .prepare(
+            `SELECT * FROM sessions WHERE tenant_id = ? AND scope = ? AND scope_id = ?
+             AND (started_at < ? OR (started_at = ? AND id < ?))
+             ORDER BY started_at DESC, id DESC LIMIT ?`,
+          )
+          .all(tenantId, scope, scopeId, cur.ts, cur.ts, cur.id, limit + 1) as Record<string, unknown>[];
+      }
     } else {
-      rows = this.db
-        .prepare(
-          `SELECT * FROM sessions WHERE tenant_id = ? AND scope = ? AND scope_id = ?
-           ORDER BY started_at DESC, id DESC LIMIT ?`,
-        )
-        .all(tenantId, scope, scopeId, limit + 1) as Record<string, unknown>[];
+      if (wildcard) {
+        rows = this.db
+          .prepare(
+            `SELECT * FROM sessions WHERE tenant_id = ? AND scope = ?
+             ORDER BY started_at DESC, id DESC LIMIT ?`,
+          )
+          .all(tenantId, scope, limit + 1) as Record<string, unknown>[];
+      } else {
+        rows = this.db
+          .prepare(
+            `SELECT * FROM sessions WHERE tenant_id = ? AND scope = ? AND scope_id = ?
+             ORDER BY started_at DESC, id DESC LIMIT ?`,
+          )
+          .all(tenantId, scope, scopeId, limit + 1) as Record<string, unknown>[];
+      }
     }
 
     const hasMore = rows.length > limit;
