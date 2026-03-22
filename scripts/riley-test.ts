@@ -126,7 +126,7 @@ async function main() {
 
       // Ask LLM to answer from context
       const answerResp = await cheapLLM.complete([
-        { role: 'system', content: 'Answer the question based on the context. IMPORTANT: "User" in the context refers to the person being asked about. So "User loves Casey" means the person in the question loves Casey. Be concise — 1-2 sentences. Only say NOT FOUND if truly nothing relevant.' },
+        { role: 'system', content: 'You are answering questions about a person. The memories below refer to this person as "User". When the question asks about "Riley", "User" IS Riley. They are the SAME person.\n\nExample: If context says "User loves Casey" and question asks "Who does Riley love?" → answer is "Casey".\n\nBe concise. Only say NOT FOUND if the context is truly completely unrelated.' },
         { role: 'user', content: `Context:\n${context}\n\nQuestion: ${q}` },
       ], { temperature: 0 });
 
