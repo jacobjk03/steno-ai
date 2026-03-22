@@ -172,6 +172,17 @@ async function executeExtraction(
     (uniqueTiers[0] === 'heuristic' ? 'heuristic' :
       uniqueTiers[0] === 'cheap_llm' ? 'cheap_llm' : 'smart_llm');
 
+  // Ensure "User" entity exists — LLM creates edges like "user → shops_at → target"
+  // but never extracts "user" as an entity, so those edges get silently dropped.
+  if (!mergedEntities.some(e => e.canonicalName === 'user')) {
+    mergedEntities.push({
+      name: 'User',
+      entityType: 'person',
+      canonicalName: 'user',
+      properties: { scopeId: input.scopeId },
+    });
+  }
+
   // Persist entities ONCE (before the fact loop) to build entityIdMap.
   const { entityIdMap, entitiesCreated: newEntitiesCreated } = await buildEntityIdMap(
     config.storage,

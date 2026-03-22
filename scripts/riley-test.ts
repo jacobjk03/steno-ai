@@ -5,7 +5,7 @@
 
 import { createSupabaseClient, SupabaseStorageAdapter } from '../packages/supabase-adapter/src/index.js';
 import { OpenAILLMAdapter } from '../packages/openai-adapter/src/index.js';
-import { GeminiEmbeddingAdapter } from '../packages/engine/src/adapters/gemini-embedding.js';
+import { OpenAIEmbeddingAdapter } from '../packages/openai-adapter/src/index.js';
 import { InMemoryCacheAdapter } from '../packages/cache-adapter/src/index.js';
 import { CachedEmbeddingAdapter } from '../packages/engine/src/retrieval/embedding-cache.js';
 import { runExtractionPipeline } from '../packages/engine/src/extraction/pipeline.js';
@@ -39,7 +39,7 @@ async function main() {
   // Setup
   const supabase = createSupabaseClient({ url: SUPABASE_URL, serviceRoleKey: SUPABASE_SERVICE_ROLE_KEY });
   const storage = new SupabaseStorageAdapter(supabase);
-  const rawEmbedding = new GeminiEmbeddingAdapter({ apiKey: GEMINI_API_KEY });
+  const rawEmbedding = new OpenAIEmbeddingAdapter({ apiKey: OPENAI_API_KEY, model: 'text-embedding-3-large', dimensions: 3072 });
   const cache = new InMemoryCacheAdapter();
   const embedding = new CachedEmbeddingAdapter(rawEmbedding, cache, 7200);
   const cheapLLM = new OpenAILLMAdapter({ apiKey: OPENAI_API_KEY, model: 'gpt-4.1-nano' });
@@ -88,7 +88,7 @@ async function main() {
       const result = await runExtractionPipeline(
         {
           storage, embedding, cheapLLM,
-          embeddingModel: 'gemini-embedding-001',
+          embeddingModel: 'text-embedding-3-large',
           embeddingDim: 3072,
           extractionTier: 'auto',
         },
