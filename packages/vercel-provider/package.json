@@ -1,0 +1,23 @@
+{
+  "name": "@steno-ai/vercel-provider",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "test": "vitest run",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@steno-ai/sdk": "workspace:*"
+  },
+  "peerDependencies": {
+    "ai": ">=4"
+  },
+  "devDependencies": {
+    "typescript": "^5.7",
+    "vitest": "^3",
+    "ai": "^4"
+  }
+}
