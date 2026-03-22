@@ -71,6 +71,29 @@ class MemoryClient:
         """Get the edit history of a fact."""
         return self._http.request("GET", f"/v1/memory/{fact_id}/history")
 
+    def update(self, fact_id: str, content: str) -> dict:
+        """Update a memory's content."""
+        return self._http.request("PATCH", f"/v1/memory/{fact_id}", json={"content": content})
+
+    def list(self, scope: str, scope_id: str, limit: int = 20, cursor: Optional[str] = None) -> dict:
+        """List memories for a scope."""
+        params = f"scope={scope}&scope_id={scope_id}&limit={limit}"
+        if cursor:
+            params += f"&cursor={cursor}"
+        return self._http.request("GET", f"/v1/memory?{params}")
+
+    def export(self, scope: str, scope_id: str) -> dict:
+        """Export all memories for a scope."""
+        return self._http.request("GET", f"/v1/export?scope={scope}&scope_id={scope_id}")
+
+    def add_batch(self, items: list) -> dict:
+        """Add multiple memories in a single request."""
+        return self._http.request("POST", "/v1/memory/batch", json={"items": items})
+
+    def search_batch(self, queries: list) -> dict:
+        """Run multiple searches in a single request."""
+        return self._http.request("POST", "/v1/memory/search/batch", json={"queries": queries})
+
     def delete(self, fact_id: str) -> None:
         """Delete a single fact."""
         self._http.request("DELETE", f"/v1/memory/{fact_id}")

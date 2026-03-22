@@ -261,6 +261,290 @@ class TestMemoryClient:
         assert body["scope_id"] == "user_1"
 
 
+class TestProfileOneLiner:
+    @patch("steno_ai.client.httpx.Client")
+    def test_profile(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.request.return_value = _mock_response(
+            json_data={"data": {"user_id": "user_1", "facts": ["Loves pizza"]}}
+        )
+
+        steno = Steno("sk_test_123")
+        result = steno.profile("user_1")
+
+        call_args = mock_client.request.call_args
+        assert call_args[0][0] == "GET"
+        assert "scope=user" in call_args[0][1]
+        assert "scope_id=user_1" in call_args[0][1]
+        assert result["user_id"] == "user_1"
+
+
+class TestUpdateOneLiner:
+    @patch("steno_ai.client.httpx.Client")
+    def test_update(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.request.return_value = _mock_response(
+            json_data={"data": {"id": "fact_1", "content": "Updated content"}}
+        )
+
+        steno = Steno("sk_test_123")
+        result = steno.update("fact_1", "Updated content")
+
+        call_args = mock_client.request.call_args
+        assert call_args[0][0] == "PATCH"
+        assert "fact_1" in call_args[0][1]
+        body = call_args[1].get("json", {})
+        assert body["content"] == "Updated content"
+        assert result["content"] == "Updated content"
+
+
+class TestMemoryClientUpdate:
+    @patch("steno_ai.client.httpx.Client")
+    def test_update(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.request.return_value = _mock_response(
+            json_data={"data": {"id": "fact_1", "content": "New text"}}
+        )
+
+        steno = Steno("sk_test_123")
+        result = steno.memory.update("fact_1", "New text")
+
+        call_args = mock_client.request.call_args
+        assert call_args[0][0] == "PATCH"
+        assert "fact_1" in call_args[0][1]
+        assert result["content"] == "New text"
+
+
+class TestMemoryClientList:
+    @patch("steno_ai.client.httpx.Client")
+    def test_list(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.request.return_value = _mock_response(
+            json_data={"data": {"items": [{"id": "f1"}], "cursor": "abc"}}
+        )
+
+        steno = Steno("sk_test_123")
+        result = steno.memory.list("user", "user_1", limit=5)
+
+        call_args = mock_client.request.call_args
+        assert call_args[0][0] == "GET"
+        assert "scope=user" in call_args[0][1]
+        assert "scope_id=user_1" in call_args[0][1]
+        assert "limit=5" in call_args[0][1]
+        assert len(result["items"]) == 1
+
+    @patch("steno_ai.client.httpx.Client")
+    def test_list_with_cursor(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.request.return_value = _mock_response(
+            json_data={"data": {"items": [], "cursor": None}}
+        )
+
+        steno = Steno("sk_test_123")
+        steno.memory.list("user", "user_1", cursor="abc")
+
+        call_args = mock_client.request.call_args
+        assert "cursor=abc" in call_args[0][1]
+
+
+class TestMemoryClientExport:
+    @patch("steno_ai.client.httpx.Client")
+    def test_export(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.request.return_value = _mock_response(
+            json_data={"data": {"items": [{"id": "f1"}]}}
+        )
+
+        steno = Steno("sk_test_123")
+        result = steno.memory.export("user", "user_1")
+
+        call_args = mock_client.request.call_args
+        assert call_args[0][0] == "GET"
+        assert "/v1/export" in call_args[0][1]
+        assert "scope=user" in call_args[0][1]
+        assert len(result["items"]) == 1
+
+
+class TestMemoryClientBatch:
+    @patch("steno_ai.client.httpx.Client")
+    def test_add_batch(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.request.return_value = _mock_response(
+            json_data={"data": {"processed": 2}}
+        )
+
+        steno = Steno("sk_test_123")
+        items = [
+            {"scope": "user", "scope_id": "u1", "data": "fact 1"},
+            {"scope": "user", "scope_id": "u1", "data": "fact 2"},
+        ]
+        result = steno.memory.add_batch(items)
+
+        call_args = mock_client.request.call_args
+        assert call_args[0][0] == "POST"
+        assert "/v1/memory/batch" in call_args[0][1]
+        body = call_args[1].get("json", {})
+        assert len(body["items"]) == 2
+        assert result["processed"] == 2
+
+    @patch("steno_ai.client.httpx.Client")
+    def test_search_batch(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.request.return_value = _mock_response(
+            json_data={"data": {"results": [[], []]}}
+        )
+
+        steno = Steno("sk_test_123")
+        queries = [
+            {"query": "food", "scope": "user", "scope_id": "u1"},
+            {"query": "work", "scope": "user", "scope_id": "u1"},
+        ]
+        result = steno.memory.search_batch(queries)
+
+        call_args = mock_client.request.call_args
+        assert call_args[0][0] == "POST"
+        assert "/v1/memory/search/batch" in call_args[0][1]
+        body = call_args[1].get("json", {})
+        assert len(body["queries"]) == 2
+
+
+class TestGraphClient:
+    @patch("steno_ai.client.httpx.Client")
+    def test_list_entities(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.request.return_value = _mock_response(
+            json_data={"data": {"items": [{"id": "ent_1", "name": "Pizza"}]}}
+        )
+
+        steno = Steno("sk_test_123")
+        result = steno.graph.list_entities(limit=10)
+
+        call_args = mock_client.request.call_args
+        assert call_args[0][0] == "GET"
+        assert "limit=10" in call_args[0][1]
+        assert len(result["items"]) == 1
+
+    @patch("steno_ai.client.httpx.Client")
+    def test_list_entities_with_cursor(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.request.return_value = _mock_response(
+            json_data={"data": {"items": []}}
+        )
+
+        steno = Steno("sk_test_123")
+        steno.graph.list_entities(cursor="xyz")
+
+        call_args = mock_client.request.call_args
+        assert "cursor=xyz" in call_args[0][1]
+
+    @patch("steno_ai.client.httpx.Client")
+    def test_get_entity(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.request.return_value = _mock_response(
+            json_data={"data": {"id": "ent_1", "name": "Pizza"}}
+        )
+
+        steno = Steno("sk_test_123")
+        result = steno.graph.get_entity("ent_1")
+
+        call_args = mock_client.request.call_args
+        assert call_args[0][0] == "GET"
+        assert "ent_1" in call_args[0][1]
+        assert result["name"] == "Pizza"
+
+    @patch("steno_ai.client.httpx.Client")
+    def test_get_related(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.request.return_value = _mock_response(
+            json_data={"data": {"entity": "ent_1", "related": [{"id": "ent_2"}]}}
+        )
+
+        steno = Steno("sk_test_123")
+        result = steno.graph.get_related("ent_1", depth=2)
+
+        call_args = mock_client.request.call_args
+        assert call_args[0][0] == "GET"
+        assert "ent_1" in call_args[0][1]
+        assert "depth=2" in call_args[0][1]
+        assert len(result["related"]) == 1
+
+
+class TestWebhookClient:
+    @patch("steno_ai.client.httpx.Client")
+    def test_create_webhook(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.request.return_value = _mock_response(
+            json_data={"data": {"id": "wh_1", "url": "https://example.com/hook"}}
+        )
+
+        steno = Steno("sk_test_123")
+        result = steno.webhooks.create(
+            url="https://example.com/hook",
+            events=["memory.created"],
+            secret="whsec_123",
+        )
+
+        call_args = mock_client.request.call_args
+        assert call_args[0][0] == "POST"
+        body = call_args[1].get("json", {})
+        assert body["url"] == "https://example.com/hook"
+        assert body["events"] == ["memory.created"]
+        assert body["secret"] == "whsec_123"
+        assert result["id"] == "wh_1"
+
+    @patch("steno_ai.client.httpx.Client")
+    def test_list_webhooks(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.request.return_value = _mock_response(
+            json_data={"data": [{"id": "wh_1"}, {"id": "wh_2"}]}
+        )
+
+        steno = Steno("sk_test_123")
+        result = steno.webhooks.list()
+
+        call_args = mock_client.request.call_args
+        assert call_args[0][0] == "GET"
+        assert len(result) == 2
+
+    @patch("steno_ai.client.httpx.Client")
+    def test_delete_webhook(self, mock_client_cls):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.request.return_value = _mock_response(status_code=204)
+
+        steno = Steno("sk_test_123")
+        steno.webhooks.delete("wh_1")
+
+        call_args = mock_client.request.call_args
+        assert call_args[0][0] == "DELETE"
+        assert "wh_1" in call_args[0][1]
+
+
+class TestStenoSubClients:
+    def test_creates_all_sub_clients(self):
+        steno = Steno("sk_test_123")
+        assert steno.memory is not None
+        assert steno.sessions is not None
+        assert steno.triggers is not None
+        assert steno.keys is not None
+        assert steno.graph is not None
+        assert steno.webhooks is not None
+
+
 class TestStenoErrorRepr:
     def test_repr(self):
         err = StenoError("unauthorized", "Invalid API key", 401)

@@ -10,10 +10,12 @@ Steno AI SDK — dead-simple memory for your AI apps.
 
 from .client import HttpClient
 from .errors import StenoError
+from .graph import GraphClient
 from .keys import KeyClient
 from .memory import MemoryClient
 from .sessions import SessionClient
 from .triggers import TriggerClient
+from .webhooks import WebhookClient
 
 __all__ = [
     "Steno",
@@ -22,6 +24,8 @@ __all__ = [
     "SessionClient",
     "TriggerClient",
     "KeyClient",
+    "GraphClient",
+    "WebhookClient",
 ]
 
 
@@ -37,6 +41,8 @@ class Steno:
         self.sessions = SessionClient(self._http)
         self.triggers = TriggerClient(self._http)
         self.keys = KeyClient(self._http)
+        self.graph = GraphClient(self._http)
+        self.webhooks = WebhookClient(self._http)
 
     # ── One-liners ──
 
@@ -88,6 +94,14 @@ class Steno:
             was_useful=useful,
             feedback_type="explicit_positive" if useful else "explicit_negative",
         )
+
+    def profile(self, user_id: str) -> dict:
+        """Get user profile (static + dynamic facts)."""
+        return self._http.request("GET", f"/v1/profile?scope=user&scope_id={user_id}")
+
+    def update(self, fact_id: str, content: str) -> dict:
+        """Update a memory's content."""
+        return self.memory.update(fact_id, content)
 
     def usage(self) -> dict:
         """Get usage stats for the current API key."""
