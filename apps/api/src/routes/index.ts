@@ -8,3 +8,4 @@ export { extractions } from './extractions.js';
 export { webhooks } from './webhooks.js';
 export { usage } from './usage.js';
 export { keys } from './keys.js';
+export { profile } from './profile.js';

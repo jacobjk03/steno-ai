@@ -266,6 +266,65 @@ memory.delete('/purge', authMiddleware('admin'), async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// PATCH /:id  — Update memory content (creates new version, invalidates old)
+// ---------------------------------------------------------------------------
+
+memory.patch('/:id', authMiddleware('write'), async (c) => {
+  const factId = c.req.param('id');
+  const tenantId = c.get('tenantId');
+  const adapters = getAdapters(c);
+
+  let body;
+  try {
+    body = await c.req.json();
+  } catch {
+    throw badRequest('Invalid JSON body');
+  }
+
+  const content = body.content;
+  if (!content || typeof content !== 'string') {
+    throw badRequest('content (string) is required');
+  }
+
+  // Get existing fact
+  const existing = await adapters.storage.getFact(tenantId, factId);
+  if (!existing) {
+    throw notFound(`Fact ${factId} not found`);
+  }
+
+  // Create new version with updated content
+  const newId = crypto.randomUUID();
+  const embedding = await adapters.embedding.embed(content);
+
+  await adapters.storage.createFact({
+    id: newId,
+    lineageId: existing.lineageId,
+    tenantId,
+    scope: existing.scope,
+    scopeId: existing.scopeId,
+    sessionId: existing.sessionId ?? undefined,
+    content,
+    embeddingModel: existing.embeddingModel ?? undefined,
+    embeddingDim: existing.embeddingDim ?? undefined,
+    embedding,
+    importance: existing.importance,
+    confidence: existing.confidence,
+    operation: 'update',
+    sourceType: existing.sourceType,
+    originalContent: content,
+    extractionTier: existing.extractionTier ?? undefined,
+    modality: existing.modality,
+    tags: existing.tags,
+    contradictionStatus: 'none',
+  });
+
+  // Invalidate old version
+  await adapters.storage.invalidateFact(tenantId, factId);
+
+  return successResponse(c, { id: newId, content, lineageId: existing.lineageId, previousId: factId });
+});
+
+// ---------------------------------------------------------------------------
 // GET /:id  — Get specific fact
 // ---------------------------------------------------------------------------
 

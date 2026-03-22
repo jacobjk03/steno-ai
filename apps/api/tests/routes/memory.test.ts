@@ -159,8 +159,15 @@ function makeStorage(overrides: Partial<StorageAdapter> = {}): StorageAdapter {
   } as StorageAdapter;
 }
 
-function createTestApp(storageOverrides: Partial<StorageAdapter> = {}) {
+function makeEmbedding() {
+  return {
+    embed: vi.fn().mockResolvedValue(new Array(1536).fill(0)),
+  };
+}
+
+function createTestApp(storageOverrides: Partial<StorageAdapter> = {}, embeddingOverride?: { embed: ReturnType<typeof vi.fn> }) {
   const storage = makeStorage(storageOverrides);
+  const embedding = embeddingOverride ?? makeEmbedding();
   const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
   app.onError(globalErrorHandler);
@@ -171,7 +178,7 @@ function createTestApp(storageOverrides: Partial<StorageAdapter> = {}) {
     c.set('tenantId', TENANT_ID);
     c.set('tenantPlan', 'pro');
     c.set('apiKeyScopes', ['read', 'write', 'admin']);
-    const adapters = { storage } as unknown as Adapters;
+    const adapters = { storage, embedding } as unknown as Adapters;
     c.set('adapters', adapters);
     await next();
   });
@@ -180,7 +187,7 @@ function createTestApp(storageOverrides: Partial<StorageAdapter> = {}) {
   app.route('/v1/memory', memoryRoutes);
   app.route('/v1/export', exportRoutes);
 
-  return { app, storage };
+  return { app, storage, embedding };
 }
 
 function postJson(app: Hono, path: string, body: unknown) {
@@ -193,6 +200,14 @@ function postJson(app: Hono, path: string, body: unknown) {
 
 function deleteReq(app: Hono, path: string) {
   return app.request(path, { method: 'DELETE' });
+}
+
+function patchJson(app: Hono, path: string, body: unknown) {
+  return app.request(path, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -649,6 +664,94 @@ describe('GET /v1/export', () => {
     const res = await app.request(
       '/v1/export?scope=user&scope_id=user_1&format=csv',
     );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe('bad_request');
+  });
+});
+
+describe('PATCH /v1/memory/:id', () => {
+  it('creates new version and returns new id', async () => {
+    const existingFact = makeFact();
+    const { app, storage, embedding } = createTestApp({
+      getFact: vi.fn().mockResolvedValue(existingFact),
+    });
+
+    const res = await patchJson(app, `/v1/memory/${FACT_ID}`, {
+      content: 'User prefers light mode',
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.id).toBeDefined();
+    expect(body.data.id).not.toBe(FACT_ID);
+    expect(body.data.content).toBe('User prefers light mode');
+    expect(body.data.lineage_id).toBe(LINEAGE_ID);
+    expect(body.data.previous_id).toBe(FACT_ID);
+
+    // Should have called embed with the new content
+    expect(embedding.embed).toHaveBeenCalledWith('User prefers light mode');
+
+    // Should have created a new fact with the updated content
+    expect(storage.createFact).toHaveBeenCalled();
+    const calls = (storage.createFact as ReturnType<typeof vi.fn>).mock.calls;
+    // Find the call whose first arg is an object with the updated content
+    const patchCall = calls.find((c: unknown[]) => typeof c[0] === 'object' && c[0] !== null && (c[0] as Record<string, unknown>).content === 'User prefers light mode');
+    expect(patchCall).toBeDefined();
+    const createCall = patchCall![0] as Record<string, unknown>;
+    expect(createCall.content).toBe('User prefers light mode');
+    expect(createCall.lineageId).toBe(LINEAGE_ID);
+    expect(createCall.operation).toBe('update');
+
+    // Should have invalidated the old fact
+    expect(storage.invalidateFact).toHaveBeenCalledWith(TENANT_ID, FACT_ID);
+  });
+
+  it('returns 404 for unknown fact id', async () => {
+    const { app } = createTestApp({
+      getFact: vi.fn().mockResolvedValue(null),
+    });
+
+    const res = await patchJson(app, '/v1/memory/nonexistent-id', {
+      content: 'Updated content',
+    });
+
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.error.code).toBe('not_found');
+  });
+
+  it('returns 400 when content is missing', async () => {
+    const { app } = createTestApp();
+
+    const res = await patchJson(app, `/v1/memory/${FACT_ID}`, {});
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe('bad_request');
+  });
+
+  it('returns 400 when content is not a string', async () => {
+    const { app } = createTestApp();
+
+    const res = await patchJson(app, `/v1/memory/${FACT_ID}`, {
+      content: 123,
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe('bad_request');
+  });
+
+  it('returns 400 for invalid JSON body', async () => {
+    const { app } = createTestApp();
+
+    const res = await app.request(`/v1/memory/${FACT_ID}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: 'not json',
+    });
+
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error.code).toBe('bad_request');

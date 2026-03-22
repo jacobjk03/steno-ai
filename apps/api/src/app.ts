@@ -13,6 +13,7 @@ import {
   webhooks,
   usage,
   keys,
+  profile,
 } from './routes/index.js';
 
 // Context variables set by middleware
@@ -62,6 +63,7 @@ export function createApp(): AppType {
   app.route('/v1/usage', usage);
   app.route('/v1/keys', keys);
   app.route('/v1/export', exportRoutes);
+  app.route('/v1/profile', profile);
 
   return app;
 }
