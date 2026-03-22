@@ -14,9 +14,9 @@ export interface SyncConfig {
  */
 export async function syncToCloud(
   steno: StenoLocal,
-  config: SyncConfig,
+  config: SyncConfig & { scope?: string; scopeId?: string },
 ): Promise<{ factsSynced: number; entitiesSynced: number }> {
-  const data = await steno.export('user', '*');
+  const data = await steno.export(config.scope ?? 'user', config.scopeId ?? '*');
 
   if (config.dryRun) {
     console.log('[steno sync] Dry run:');

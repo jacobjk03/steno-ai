@@ -3,6 +3,8 @@ import { OpenAICompatLLMAdapter, OpenAICompatEmbeddingAdapter } from '@steno-ai/
 import { InMemoryCacheAdapter } from '@steno-ai/cache-adapter';
 import {
   runExtractionPipeline,
+  runExtractionFromQueue,
+  hashInput,
   search,
   startSession,
   endSession,
@@ -138,20 +140,22 @@ export function createStenoLocal(config: StenoLocalConfig): StenoLocal {
       async addAsync(input) {
         await ensureTenant();
         const extractionId = crypto.randomUUID();
-        const inputText = typeof input.data === 'string' ? input.data : JSON.stringify(input.data);
+        const inputHash = await hashInput({ type: input.inputType ?? 'conversation', data: input.data });
+
         await storage.createExtraction({
           id: extractionId,
           tenantId,
           inputType: (input.inputType ?? 'conversation') as any,
-          inputData: inputText,
-          inputHash: extractionId, // simplified hash for async
+          inputData: typeof input.data === 'string' ? input.data : JSON.stringify(input.data),
+          inputHash,
           scope: input.scope as any,
           scopeId: input.scopeId,
           sessionId: input.sessionId,
         });
-        // Process in background
+
+        // Process in background using the queue worker entry point
         setImmediate(() => {
-          void runExtractionPipeline(pipelineConfig, {
+          void runExtractionFromQueue(pipelineConfig, extractionId, {
             tenantId,
             scope: input.scope as any,
             scopeId: input.scopeId,
@@ -299,7 +303,21 @@ export function createStenoLocal(config: StenoLocalConfig): StenoLocal {
       const facts = await storage.getFactsByScope(tenantId, scope, scopeId, { limit: 10000 });
       const entities = await storage.getEntitiesForTenant(tenantId, { limit: 10000 });
       const sessions = await storage.getSessionsByScope(tenantId, scope, scopeId, { limit: 10000 });
-      return { facts: facts.data, entities: entities.data, sessions: sessions.data };
+
+      // Collect edges for all entities
+      const edges: any[] = [];
+      const seenEdgeIds = new Set<string>();
+      for (const entity of entities.data) {
+        const entityEdges = await storage.getEdgesForEntity(tenantId, entity.id);
+        for (const edge of entityEdges) {
+          if (!seenEdgeIds.has(edge.id)) {
+            seenEdgeIds.add(edge.id);
+            edges.push(edge);
+          }
+        }
+      }
+
+      return { facts: facts.data, entities: entities.data, edges, sessions: sessions.data };
     },
 
     async import(data) {
@@ -309,25 +327,29 @@ export function createStenoLocal(config: StenoLocalConfig): StenoLocal {
 
       // Import entities first
       for (const entity of (data.entities ?? [])) {
-        await storage.createEntity({
-          ...entity,
-          tenantId,
-          id: entity.id ?? crypto.randomUUID(),
-        });
-        entitiesImported++;
+        try {
+          await storage.createEntity({
+            ...entity,
+            tenantId,
+            id: entity.id ?? crypto.randomUUID(),
+          });
+          entitiesImported++;
+        } catch { /* skip duplicates */ }
       }
 
       // Import facts
       for (const fact of (data.facts ?? [])) {
-        await storage.createFact({
-          ...fact,
-          tenantId,
-          id: fact.id ?? crypto.randomUUID(),
-          lineageId: fact.lineageId ?? crypto.randomUUID(),
-          embeddingModel: config.embedding.model,
-          embeddingDim: config.embedding.dimensions ?? 768,
-        });
-        factsImported++;
+        try {
+          await storage.createFact({
+            ...fact,
+            tenantId,
+            id: fact.id ?? crypto.randomUUID(),
+            lineageId: fact.lineageId ?? crypto.randomUUID(),
+            embeddingModel: config.embedding.model,
+            embeddingDim: config.embedding.dimensions ?? 768,
+          });
+          factsImported++;
+        } catch { /* skip duplicates */ }
       }
 
       return { factsImported, entitiesImported };

@@ -592,7 +592,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
       if (wildcard) {
         rows = this.db
           .prepare(
-            `SELECT * FROM facts WHERE tenant_id = ? AND scope = ?
+            `SELECT * FROM facts WHERE tenant_id = ? AND scope = ? AND valid_until IS NULL
              AND (created_at < ? OR (created_at = ? AND id < ?))
              ORDER BY created_at DESC, id DESC LIMIT ?`,
           )
@@ -600,7 +600,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
       } else {
         rows = this.db
           .prepare(
-            `SELECT * FROM facts WHERE tenant_id = ? AND scope = ? AND scope_id = ?
+            `SELECT * FROM facts WHERE tenant_id = ? AND scope = ? AND scope_id = ? AND valid_until IS NULL
              AND (created_at < ? OR (created_at = ? AND id < ?))
              ORDER BY created_at DESC, id DESC LIMIT ?`,
           )
@@ -610,14 +610,14 @@ export class SQLiteStorageAdapter implements StorageAdapter {
       if (wildcard) {
         rows = this.db
           .prepare(
-            `SELECT * FROM facts WHERE tenant_id = ? AND scope = ?
+            `SELECT * FROM facts WHERE tenant_id = ? AND scope = ? AND valid_until IS NULL
              ORDER BY created_at DESC, id DESC LIMIT ?`,
           )
           .all(tenantId, scope, limit + 1) as Record<string, unknown>[];
       } else {
         rows = this.db
           .prepare(
-            `SELECT * FROM facts WHERE tenant_id = ? AND scope = ? AND scope_id = ?
+            `SELECT * FROM facts WHERE tenant_id = ? AND scope = ? AND scope_id = ? AND valid_until IS NULL
              ORDER BY created_at DESC, id DESC LIMIT ?`,
           )
           .all(tenantId, scope, scopeId, limit + 1) as Record<string, unknown>[];
@@ -650,19 +650,21 @@ export class SQLiteStorageAdapter implements StorageAdapter {
     const factIds = factRows.map((r) => r.id);
     const placeholders = factIds.map(() => '?').join(',');
 
-    // Delete related data (cascade should handle some, but be explicit)
-    this.db.prepare(`DELETE FROM fact_entities WHERE fact_id IN (${placeholders})`).run(...factIds);
-    this.db.prepare(`DELETE FROM fact_embeddings WHERE fact_id IN (${placeholders})`).run(...factIds);
-    // Remove from FTS5
-    for (const id of factIds) {
-      removeFact(this.db, id);
-    }
-    // Delete edges referencing these facts
-    this.db.prepare(`DELETE FROM edges WHERE fact_id IN (${placeholders})`).run(...factIds);
-    // Delete facts
-    this.db
-      .prepare('DELETE FROM facts WHERE tenant_id = ? AND scope = ? AND scope_id = ?')
-      .run(tenantId, scope, scopeId);
+    this.db.transaction(() => {
+      // Delete related data (cascade should handle some, but be explicit)
+      this.db.prepare(`DELETE FROM fact_entities WHERE fact_id IN (${placeholders})`).run(...factIds);
+      this.db.prepare(`DELETE FROM fact_embeddings WHERE fact_id IN (${placeholders})`).run(...factIds);
+      // Remove from FTS5
+      for (const id of factIds) {
+        removeFact(this.db, id);
+      }
+      // Delete edges referencing these facts
+      this.db.prepare(`DELETE FROM edges WHERE fact_id IN (${placeholders})`).run(...factIds);
+      // Delete facts
+      this.db
+        .prepare('DELETE FROM facts WHERE tenant_id = ? AND scope = ? AND scope_id = ?')
+        .run(tenantId, scope, scopeId);
+    })();
 
     return factIds.length;
   }
@@ -1589,14 +1591,16 @@ export class SQLiteStorageAdapter implements StorageAdapter {
   }
 
   async getWebhooksByEvent(tenantId: string, event: string): Promise<Webhook[]> {
-    // Since events is stored as JSON array, we use LIKE for matching
     const rows = this.db
       .prepare(
-        `SELECT * FROM webhooks WHERE tenant_id = ? AND active = 1
-         AND events LIKE ?`,
+        'SELECT * FROM webhooks WHERE tenant_id = ? AND active = 1',
       )
-      .all(tenantId, `%"${event}"%`) as Record<string, unknown>[];
-    return rows.map(rowToWebhook);
+      .all(tenantId) as Record<string, unknown>[];
+
+    return rows.filter((row) => {
+      const events = parseJsonOr<string[]>(row['events'] as string, []);
+      return events.includes(event);
+    }).map(rowToWebhook);
   }
 
   async deleteWebhook(tenantId: string, id: string): Promise<void> {

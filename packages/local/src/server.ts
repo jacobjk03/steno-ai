@@ -16,6 +16,18 @@ export function createStenoServer(config: StenoLocalConfig & { port?: number }):
   const steno = createStenoLocal(config);
   const app = new Hono();
 
+  // Global error handler
+  app.onError((err, c) => {
+    console.error('[steno-local]', err);
+    return c.json({
+      error: {
+        code: 'internal_error',
+        message: err instanceof Error ? err.message : 'Unknown error',
+        status: 500,
+      }
+    }, 500);
+  });
+
   // Health
   app.get('/health', (c) => c.json({ status: 'ok', mode: 'local' }));
 
@@ -43,11 +55,26 @@ export function createStenoServer(config: StenoLocalConfig & { port?: number }):
     return c.json({ data: result.data, cursor: result.cursor, has_more: result.hasMore });
   });
 
+  // Memory — purge (must be before /:id to avoid path conflict)
+  app.delete('/v1/memory/purge', async (c) => {
+    const scope = c.req.query('scope') ?? '';
+    const scopeId = c.req.query('scope_id') ?? '';
+    const result = await steno.memory.purge(scope, scopeId);
+    return c.json({ data: { purged: result } });
+  });
+
   // Memory — get
   app.get('/v1/memory/:id', async (c) => {
     const id = c.req.param('id');
     const result = await steno.memory.get(id);
     if (!result) return c.json({ error: 'Not found' }, 404);
+    return c.json({ data: result });
+  });
+
+  // Memory — history
+  app.get('/v1/memory/:id/history', async (c) => {
+    const id = c.req.param('id');
+    const result = await steno.memory.history(id);
     return c.json({ data: result });
   });
 
@@ -92,6 +119,51 @@ export function createStenoServer(config: StenoLocalConfig & { port?: number }):
     const scope = c.req.query('scope') ?? '';
     const scopeId = c.req.query('scope_id') ?? '';
     const result = await steno.triggers.list(scope, scopeId);
+    return c.json({ data: result });
+  });
+
+  // Triggers — update
+  app.patch('/v1/triggers/:id', async (c) => {
+    const id = c.req.param('id');
+    const body = await c.req.json();
+    const result = await steno.triggers.update(id, body);
+    return c.json({ data: result });
+  });
+
+  // Triggers — delete
+  app.delete('/v1/triggers/:id', async (c) => {
+    const id = c.req.param('id');
+    await steno.triggers.delete(id);
+    return c.json({ success: true });
+  });
+
+  // Feedback
+  app.post('/v1/feedback', async (c) => {
+    const body = await c.req.json();
+    await steno.feedback.submit(body);
+    return c.json({ success: true });
+  });
+
+  // Entities — list
+  app.get('/v1/entities', async (c) => {
+    const limit = parseInt(c.req.query('limit') ?? '20', 10);
+    const cursor = c.req.query('cursor');
+    const result = await steno.graph.listEntities({ limit, cursor });
+    return c.json({ data: result.data, cursor: result.cursor, has_more: result.hasMore });
+  });
+
+  // Entities — graph
+  app.get('/v1/entities/:id/graph', async (c) => {
+    const id = c.req.param('id');
+    const maxDepth = parseInt(c.req.query('max_depth') ?? '3', 10);
+    const result = await steno.graph.getRelated(id, { maxDepth });
+    return c.json({ data: result });
+  });
+
+  // Import
+  app.post('/v1/import', async (c) => {
+    const body = await c.req.json();
+    const result = await steno.import(body);
     return c.json({ data: result });
   });
 
