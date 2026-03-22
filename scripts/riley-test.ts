@@ -114,7 +114,7 @@ async function main() {
   for (const { q, a, type } of TEST_QUESTIONS) {
     try {
       const results = await search(
-        { storage, embedding },
+        { storage, embedding, rerankerLLM: cheapLLM },
         { query: q, tenantId, scope: 'user', scopeId: 'riley_brooks', limit: 20 }
       );
 

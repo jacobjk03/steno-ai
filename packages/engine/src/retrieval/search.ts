@@ -1,6 +1,7 @@
 import type { StorageAdapter } from '../adapters/storage.js';
 import type { EmbeddingAdapter } from '../adapters/embedding.js';
 import type { CacheAdapter } from '../adapters/cache.js';
+import type { LLMAdapter } from '../adapters/llm.js';
 import type { SearchOptions, SearchResponse, FusionWeights, Candidate } from './types.js';
 import { DEFAULT_FUSION_WEIGHTS } from './types.js';
 import { compoundSearchSignal } from './compound-search.js';
@@ -11,6 +12,7 @@ import { fuseAndRank } from './fusion.js';
 import { surfaceContradictions } from './contradiction-surfacer.js';
 import { recordAccesses } from '../feedback/tracker.js';
 import { CachedEmbeddingAdapter } from './embedding-cache.js';
+import { rerank } from './reranker.js';
 
 export interface SearchConfig {
   storage: StorageAdapter;
@@ -21,6 +23,7 @@ export interface SearchConfig {
   salienceNormalizationK?: number;
   graphMaxDepth?: number;
   graphMaxEntities?: number;
+  rerankerLLM?: LLMAdapter; // Optional — if provided, re-ranks results with LLM
 }
 
 export async function search(
@@ -80,7 +83,12 @@ export async function search(
   const fusionResults = fuseAndRank(scoredCandidates, weights, limit);
 
   // 5. Enrich with contradiction context
-  const results = await surfaceContradictions(config.storage, options.tenantId, fusionResults);
+  let results = await surfaceContradictions(config.storage, options.tenantId, fusionResults);
+
+  // 5b. Optional: LLM re-ranking for better relevance
+  if (config.rerankerLLM && results.length > 0) {
+    results = await rerank(config.rerankerLLM, options.query, results, limit);
+  }
 
   // 6. Optionally enrich with graph context
   if (options.includeGraph) {

@@ -8,5 +8,6 @@ export { scoreSalience, type SalienceConfig } from './salience-scorer.js';
 export { fuseAndRank, type FusionResult } from './fusion.js';
 export { surfaceContradictions, buildTimeline } from './contradiction-surfacer.js';
 export { search, type SearchConfig } from './search.js';
+export { rerank } from './reranker.js';
 export { compoundSearchSignal } from './compound-search.js';
 export { CachedEmbeddingAdapter } from './embedding-cache.js';
