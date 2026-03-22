@@ -1,6 +1,7 @@
 import type { StorageAdapter } from '../adapters/storage.js';
 import type { EmbeddingAdapter } from '../adapters/embedding.js';
 import type { LLMAdapter } from '../adapters/llm.js';
+import type { SourceType } from '../config.js';
 import type {
   ExtractionInput,
   PipelineResult,
@@ -272,6 +273,79 @@ async function executeExtraction(
       for (const entityId of entityIdMap.values()) {
         await config.storage.linkFactEntity(factId, entityId, 'mentioned');
       }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Store raw conversation chunks alongside extracted facts (hybrid memory)
+  // ---------------------------------------------------------------------------
+  if (input.inputType === 'conversation' && typeof input.data === 'object' && input.data !== null) {
+    const messages = (input.data as Record<string, unknown>).messages as Array<{ role: string; content: string }> | undefined;
+    if (messages && Array.isArray(messages)) {
+      for (const msg of messages) {
+        if (!msg.content || msg.content.trim().length < 10) continue;
+
+        const chunkId = crypto.randomUUID();
+        const chunkLineageId = crypto.randomUUID();
+        const chunkEmbedding = await config.embedding.embed(msg.content);
+
+        await config.storage.createFact({
+          id: chunkId,
+          lineageId: chunkLineageId,
+          tenantId: input.tenantId,
+          scope: input.scope,
+          scopeId: input.scopeId,
+          sessionId: input.sessionId,
+          content: `${msg.role}: ${msg.content}`,
+          embeddingModel: config.embeddingModel,
+          embeddingDim: config.embeddingDim,
+          embedding: chunkEmbedding,
+          importance: 0.3,
+          confidence: 1.0,
+          operation: 'create',
+          sourceType: 'conversation',
+          originalContent: msg.content,
+          extractionId,
+          extractionTier: 'heuristic',
+          modality: 'document',
+          tags: ['raw_chunk', msg.role],
+          metadata: { role: msg.role },
+          contradictionStatus: 'none',
+        });
+        factsCreated++;
+      }
+    }
+  } else if (typeof input.data === 'string' && input.data.length > 50) {
+    const paragraphs = input.data.split(/\n\n+/).filter(p => p.trim().length > 50);
+    for (const para of paragraphs) {
+      const chunkId = crypto.randomUUID();
+      const chunkLineageId = crypto.randomUUID();
+      const chunkEmbedding = await config.embedding.embed(para);
+
+      await config.storage.createFact({
+        id: chunkId,
+        lineageId: chunkLineageId,
+        tenantId: input.tenantId,
+        scope: input.scope,
+        scopeId: input.scopeId,
+        sessionId: input.sessionId,
+        content: para,
+        embeddingModel: config.embeddingModel,
+        embeddingDim: config.embeddingDim,
+        embedding: chunkEmbedding,
+        importance: 0.3,
+        confidence: 1.0,
+        operation: 'create',
+        sourceType: (input.inputType === 'conversation' || input.inputType === 'document' || input.inputType === 'url' || input.inputType === 'raw_text' ? input.inputType : 'raw_text') as SourceType,
+        originalContent: para,
+        extractionId,
+        extractionTier: 'heuristic',
+        modality: 'document',
+        tags: ['raw_chunk'],
+        metadata: {},
+        contradictionStatus: 'none',
+      });
+      factsCreated++;
     }
   }
 

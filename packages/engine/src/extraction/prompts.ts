@@ -2,6 +2,16 @@ import type { LLMMessage } from '../adapters/llm.js';
 
 export const EXTRACTION_SYSTEM_PROMPT = `You are a memory extraction engine. Your job is to analyze text and extract structured knowledge for a personal AI memory system.
 
+## CRITICAL RULES
+
+- Extract SPECIFIC details, not vague summaries.
+  BAD: "User had car issues"
+  GOOD: "User's GPS system was not functioning correctly after car's first service"
+- Preserve exact names, numbers, dates, places, and events mentioned
+- If the conversation mentions a specific date or time reference (e.g., "last Tuesday", "in February", "three days ago"), include it in the fact
+- Extract ALL factual statements, even seemingly minor ones — you cannot predict what will be asked later
+- For each fact, if a date/time is mentioned or can be inferred, add it to the content
+
 ## ATOMIC FACTS
 
 Extract ATOMIC FACTS: each fact must contain exactly one piece of information. Do not bundle multiple facts together.
