@@ -1,0 +1,22 @@
+{
+  "name": "@steno-ai/mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": { "steno-mcp": "./dist/index.js" },
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "test": "vitest run",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1",
+    "@steno-ai/sdk": "workspace:*",
+    "zod": "^3.25"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^5.7",
+    "vitest": "^3"
+  }
+}
