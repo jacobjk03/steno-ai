@@ -108,6 +108,27 @@ export async function extractWithLLM(
     }
   }
 
+  // Also parse top-level edges array (the prompt schema puts edges at the top level)
+  if (Array.isArray(parsed.edges)) {
+    for (const r of parsed.edges as unknown[]) {
+      if (!r) continue;
+      const rel = r as Record<string, unknown>;
+      const source = typeof rel.source_name === 'string' ? rel.source_name :
+                     typeof rel.source === 'string' ? rel.source : null;
+      const target = typeof rel.target_name === 'string' ? rel.target_name :
+                     typeof rel.target === 'string' ? rel.target : null;
+      if (!source || !target) continue;
+
+      edges.push({
+        sourceName: source.toLowerCase().trim(),
+        targetName: target.toLowerCase().trim(),
+        relation: String(rel.relation ?? 'related_to'),
+        edgeType: isValidEdgeType(rel.edge_type) ? rel.edge_type : 'associative',
+        confidence: clamp(confidence, 0, 1),
+      });
+    }
+  }
+
   return {
     facts,
     entities,

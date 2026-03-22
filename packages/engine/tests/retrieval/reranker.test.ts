@@ -78,15 +78,26 @@ describe('rerank', () => {
     expect(llm.complete).not.toHaveBeenCalled();
   });
 
-  it('returns results as-is when count <= topK (no LLM call)', async () => {
+  it('returns single result as-is without LLM call', async () => {
     const llm = makeMockLLM('[]');
+    const results = [
+      makeResult('f1', 'fact one', 0.9),
+    ];
+    const reranked = await rerank(llm, 'test query', results, 5);
+    expect(reranked).toEqual(results);
+    expect(llm.complete).not.toHaveBeenCalled();
+  });
+
+  it('reranks even when count <= topK (LLM still called)', async () => {
+    const llm = makeMockLLM('[1, 0]');
     const results = [
       makeResult('f1', 'fact one', 0.9),
       makeResult('f2', 'fact two', 0.8),
     ];
     const reranked = await rerank(llm, 'test query', results, 5);
-    expect(reranked).toEqual(results);
-    expect(llm.complete).not.toHaveBeenCalled();
+    expect(llm.complete).toHaveBeenCalled();
+    expect(reranked[0]!.fact.id).toBe('f2');
+    expect(reranked[1]!.fact.id).toBe('f1');
   });
 
   it('reranks results based on LLM response', async () => {

@@ -15,7 +15,7 @@ export async function rerank(
   topK: number = 10,
 ): Promise<SearchResult[]> {
   if (results.length === 0) return [];
-  if (results.length <= topK) return results; // No need to rerank if already within limit
+  if (results.length <= 1) return results; // Only skip if 0 or 1 results
 
   // Build context: numbered list of result contents
   const numbered = results.map((r, i) => `[${i}] ${r.fact.content}`).join('\n');

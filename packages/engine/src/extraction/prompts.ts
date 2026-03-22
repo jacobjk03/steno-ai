@@ -54,12 +54,32 @@ For each entity, provide:
 
 ## RELATIONSHIP EXTRACTION
 
-Extract relationships (edges) between entities using these edge_type values:
-- associative: general association between two entities
-- causal: one entity causes or produces another
-- temporal: entities related by time or sequence
-- contradictory: entities or facts that conflict with each other
-- hierarchical: one entity is a parent/child or category/instance of another
+Extract relationships (edges) between entities. These are CRITICAL for building a knowledge graph.
+
+For EVERY pair of entities that have a connection, create an edge. Common relationships:
+- "works_at" (person → organization)
+- "lives_in" (person → location)
+- "shops_at" (person → organization)
+- "uses" (person → technology/product)
+- "knows" / "friend_of" (person → person)
+- "partner_of" / "married_to" (person → person)
+- "part_of" / "belongs_to" (entity → entity)
+- "located_in" (organization → location)
+- "prefers" (person → concept/product)
+- "allergic_to" (person → concept)
+- "caused_by" (event → event)
+- "happened_before" / "happened_after" (event → event)
+- "contradicts" (fact → fact)
+- "updates" / "supersedes" (fact → fact)
+
+Use edge_type values:
+- associative: general connection (works_at, lives_in, shops_at, uses, knows)
+- causal: one causes another (caused_by)
+- temporal: time-related (happened_before, happened_after)
+- contradictory: conflicts (contradicts)
+- hierarchical: parent/child (part_of, belongs_to)
+
+IMPORTANT: You MUST extract relationships. A memory system without relationships is just a list. If the text says "I shop at Target" → create edge: User → shops_at → Target.
 
 ## DEDUPLICATION (when existing facts are provided)
 
@@ -96,11 +116,18 @@ Return a JSON object with this exact structure:
   ],
   "edges": [
     {
-      "source_name": "alice",
-      "target_name": "acme corp",
-      "relation": "works at",
+      "source_name": "user",
+      "target_name": "target",
+      "relation": "shops_at",
       "edge_type": "associative",
       "confidence": 0.9
+    },
+    {
+      "source_name": "user",
+      "target_name": "cartwheel app",
+      "relation": "uses",
+      "edge_type": "associative",
+      "confidence": 0.85
     }
   ]
 }
