@@ -1,0 +1,71 @@
+[
+  {
+    "question_id": "gpt4_2655b836",
+    "question_type": "temporal-reasoning",
+    "question": "What was the first issue I had with my new car after its first service?",
+    "ground_truth": "GPS system not functioning correctly",
+    "hypothesis": "The context does not mention any specific issues with your new car after its first service.",
+    "retrieved_facts": [
+      "User recently got their car serviced for the first time on March 15th",
+      "User is a bit concerned about the fuel efficiency of my new car on these long drives",
+      "User is happy with their new car accessories",
+      "User's GPS system was replaced by the dealership on 3/22",
+      "User is considering getting car wax and detailing done soon",
+      "User used the gift card to buy a car cover, floor mats, and a steering wheel cover",
+      "User is considering getting a car wax and detailing every 3-4 months",
+      "User's car is a silver Honda Civic.",
+      "User bought the Honda Civic on February 10th.",
+      "User plans to check review websites and ask for referrals to find a detailer"
+    ],
+    "retrieval_time_ms": 11175,
+    "extraction_time_ms": 0,
+    "correct": false,
+    "judge_reasoning": "The hypothesis does not address the GPS system issue mentioned in the ground truth and instead talks about a car's service, which is unrelated."
+  },
+  {
+    "question_id": "gpt4_2487a7cb",
+    "question_type": "temporal-reasoning",
+    "question": "Which event did I attend first, the 'Effective Time Management' workshop or the 'Data Analysis using Python' webinar?",
+    "ground_truth": "'Data Analysis using Python' webinar",
+    "hypothesis": "I don't know.",
+    "retrieved_facts": [
+      "User attended a workshop on 'Effective Time Management' at the local community center last Saturday",
+      "User finds workshops and lectures helpful for learning",
+      "User mentioned URL: https://plotly.com/python/getting-started/)",
+      "User thinks I'll try out both Tableau and Power BI's free trials to get a feel for their interfaces and customization options",
+      "User mentioned URL: https://seaborn.pydata.org/tutorial.html)",
+      "User is interested in creating a dashboard to track key metrics for a project",
+      "User prefers to connect to data sources using Python",
+      "User mentioned URL: https://matplotlib.org/stable/tutorials/introductory/pyplot.html)",
+      "User thinks both Tableau and Power BI are viable options",
+      "User thinks I'll start with Seaborn then, and see how it goes"
+    ],
+    "retrieval_time_ms": 14378,
+    "extraction_time_ms": 0,
+    "correct": false,
+    "judge_reasoning": "The hypothesis states 'I don't know,' which does not provide the specific information about the webinar's title or topic given in the ground truth."
+  },
+  {
+    "question_id": "gpt4_76048e76",
+    "question_type": "temporal-reasoning",
+    "question": "Which vehicle did I take care of first in February, the bike or the car?",
+    "ground_truth": "bike",
+    "hypothesis": "I don't know.",
+    "retrieved_facts": [
+      "User has a hybrid bike, and I want to carry just one bike",
+      "User wants to carry one bike",
+      "User has a hybrid bike",
+      "User's car is a Toyota Corolla",
+      "User has a hybrid bike that's a bit on the heavier side",
+      "User's car insurance policy was recently renewed.",
+      "User's current Toyota Corolla is in good condition.",
+      "User is interested in the Kuat Transfer bike rack",
+      "Kuat Transfer provides excellent bike protection with its Pivot System",
+      "User prefers a hitch-mounted bike rack"
+    ],
+    "retrieval_time_ms": 9204,
+    "extraction_time_ms": 0,
+    "correct": false,
+    "judge_reasoning": "The hypothesis states 'I don't know,' which does not provide the correct answer 'bike' as per the ground truth."
+  }
+]

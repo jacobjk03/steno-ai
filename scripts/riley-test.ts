@@ -4,7 +4,8 @@
  */
 
 import { createSupabaseClient, SupabaseStorageAdapter } from '../packages/supabase-adapter/src/index.js';
-import { OpenAILLMAdapter, OpenAIEmbeddingAdapter } from '../packages/openai-adapter/src/index.js';
+import { OpenAILLMAdapter } from '../packages/openai-adapter/src/index.js';
+import { GeminiEmbeddingAdapter } from '../packages/engine/src/adapters/gemini-embedding.js';
 import { InMemoryCacheAdapter } from '../packages/cache-adapter/src/index.js';
 import { CachedEmbeddingAdapter } from '../packages/engine/src/retrieval/embedding-cache.js';
 import { runExtractionPipeline } from '../packages/engine/src/extraction/pipeline.js';
@@ -16,6 +17,7 @@ config({ path: '.env' });
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY!;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY!;
 
 // Questions we KNOW the answers to from reading the data
 const TEST_QUESTIONS = [
@@ -37,7 +39,7 @@ async function main() {
   // Setup
   const supabase = createSupabaseClient({ url: SUPABASE_URL, serviceRoleKey: SUPABASE_SERVICE_ROLE_KEY });
   const storage = new SupabaseStorageAdapter(supabase);
-  const rawEmbedding = new OpenAIEmbeddingAdapter({ apiKey: OPENAI_API_KEY, model: 'text-embedding-3-small', dimensions: 1536 });
+  const rawEmbedding = new GeminiEmbeddingAdapter({ apiKey: GEMINI_API_KEY });
   const cache = new InMemoryCacheAdapter();
   const embedding = new CachedEmbeddingAdapter(rawEmbedding, cache, 7200);
   const cheapLLM = new OpenAILLMAdapter({ apiKey: OPENAI_API_KEY, model: 'gpt-4.1-nano' });
@@ -53,12 +55,14 @@ async function main() {
   const entries = data.dayEntries || [];
 
   // Ingest journal entries (batch by date, max 20 entries to save tokens)
-  console.log(`1. Ingesting ${Math.min(entries.length, 30)} journal entries...\n`);
+  const skipIngest = process.argv.includes('--skip-ingest');
+  console.log(`1. ${skipIngest ? 'SKIPPING ingestion (using existing data)' : `Ingesting ${Math.min(entries.length, 30)} journal entries`}...\n`);
+  if (skipIngest) { console.log('   (pass without --skip-ingest to re-ingest)\n'); }
 
   let totalFacts = 0;
   const entriesToIngest = entries.slice(0, 30); // First 30 days (most recent)
 
-  for (let i = 0; i < entriesToIngest.length; i++) {
+  if (skipIngest) { /* skip */ } else for (let i = 0; i < entriesToIngest.length; i++) {
     const entry = entriesToIngest[i];
     const journals = entry.daily?.journalEntries || [];
     const coachSessions = entry.daily?.coachSession || [];
@@ -84,8 +88,8 @@ async function main() {
       const result = await runExtractionPipeline(
         {
           storage, embedding, cheapLLM,
-          embeddingModel: 'text-embedding-3-small',
-          embeddingDim: 1536,
+          embeddingModel: 'gemini-embedding-001',
+          embeddingDim: 3072,
           extractionTier: 'auto',
         },
         {
@@ -122,7 +126,7 @@ async function main() {
 
       // Ask LLM to answer from context
       const answerResp = await cheapLLM.complete([
-        { role: 'system', content: 'Answer the question based on the provided context. Look carefully through ALL the context for relevant information — the answer may be spread across multiple facts or mentioned indirectly.\n\nRules:\n- Extract specific names, dates, numbers, and details from the context\n- If multiple facts mention the same topic, synthesize them\n- If the context contains the answer even indirectly (e.g., "User and Casey are aligned" implies Casey is the partner), use it\n- Be concise — 1-2 sentences\n- Only say "NOT FOUND" if the context is truly completely unrelated to the question' },
+        { role: 'system', content: 'Answer the question based on the context. IMPORTANT: "User" in the context refers to the person being asked about. So "User loves Casey" means the person in the question loves Casey. Be concise — 1-2 sentences. Only say NOT FOUND if truly nothing relevant.' },
         { role: 'user', content: `Context:\n${context}\n\nQuestion: ${q}` },
       ], { temperature: 0 });
 
