@@ -107,20 +107,47 @@ export function stenoMemory(
       if (!queryText) return params;
 
       try {
-        const response = await steno.search(
-          options.userId,
-          queryText,
-          maxMemories,
-        );
+        // Fetch user profile + relevant memories in parallel
+        // TODO: Replace raw HTTP call with steno.profile() once SDK supports it
+        const [profileResult, searchResult] = await Promise.allSettled([
+          (steno as any).memory.http.request(
+            'GET',
+            `/v1/profile/${encodeURIComponent(options.userId)}`,
+          ) as Promise<{
+            static?: Array<{ category?: string; content: string }>;
+            dynamic?: Array<{ content: string }>;
+          }>,
+          steno.search(options.userId, queryText, maxMemories),
+        ]);
 
-        if (response.results && response.results.length > 0) {
-          const memoryContext = response.results
-            .map((r) => `- ${r.content}`)
-            .join('\n');
+        const contextParts: string[] = [];
 
+        // Add profile if available
+        if (profileResult.status === 'fulfilled' && profileResult.value) {
+          const profile = profileResult.value;
+          const staticFacts = (profile.static || [])
+            .map((f) => f.content)
+            .join('\n  - ');
+          if (staticFacts) {
+            contextParts.push(`User profile:\n  - ${staticFacts}`);
+          }
+        }
+
+        // Add relevant memories
+        if (searchResult.status === 'fulfilled') {
+          const memories = searchResult.value.results || [];
+          if (memories.length > 0) {
+            const memoryText = memories
+              .map((r) => r.content)
+              .join('\n  - ');
+            contextParts.push(`Relevant memories:\n  - ${memoryText}`);
+          }
+        }
+
+        if (contextParts.length > 0) {
           const memoryMessage: (typeof params.prompt)[number] = {
             role: 'system' as const,
-            content: `You have the following memories about this user:\n${memoryContext}\n\nUse these memories to personalize your response when relevant.`,
+            content: `You have the following context about this user:\n\n${contextParts.join('\n\n')}\n\nUse this context to personalize your response when relevant.`,
           };
 
           return {
@@ -129,7 +156,7 @@ export function stenoMemory(
           };
         }
       } catch {
-        // If memory search fails, continue without memories — don't break the app
+        // If memory/profile fetch fails, continue without context — don't break the app
       }
 
       return params;

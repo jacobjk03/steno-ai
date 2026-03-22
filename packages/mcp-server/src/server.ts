@@ -2,6 +2,27 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type Steno from '@steno-ai/sdk';
 import { z } from 'zod';
 
+// TODO: Remove these helper types once the SDK exports profile/graph types
+interface ProfileFact {
+  category?: string;
+  content: string;
+}
+interface ProfileResponse {
+  static?: ProfileFact[];
+  dynamic?: ProfileFact[];
+}
+interface GraphEntity {
+  name: string;
+  entityType: string;
+}
+interface GraphEdge {
+  relation: string;
+}
+interface GraphResponse {
+  entities?: GraphEntity[];
+  edges?: GraphEdge[];
+}
+
 export function createServer(steno: Steno): McpServer {
   const server = new McpServer({
     name: 'steno',
@@ -60,6 +81,59 @@ export function createServer(steno: Steno): McpServer {
         content: [
           { type: 'text' as const, text: `Feedback recorded: ${useful ? 'positive' : 'negative'}` },
         ],
+      };
+    },
+  );
+
+  // TODO: Replace raw HTTP calls with steno.profile() / steno.graph.getRelated()
+  // once the SDK is updated with profile and graph support.
+
+  server.tool(
+    'steno_profile',
+    'Get a structured profile of everything known about a user',
+    {
+      user_id: z.string().describe('User identifier'),
+    },
+    async ({ user_id }) => {
+      // TODO: Replace with `await steno.profile(user_id)` once SDK supports it
+      const profile = await (steno as any).memory.http.request<ProfileResponse>(
+        'GET',
+        `/v1/profile/${encodeURIComponent(user_id)}`,
+      );
+      let text = `Profile for ${user_id}:\n\nStatic facts:\n`;
+      text +=
+        (profile.static || []).map((f) => `  - [${f.category}] ${f.content}`).join('\n') ||
+        '  (none)';
+      text += '\n\nDynamic facts:\n';
+      text += (profile.dynamic || []).map((f) => `  - ${f.content}`).join('\n') || '  (none)';
+      return {
+        content: [{ type: 'text' as const, text }],
+      };
+    },
+  );
+
+  server.tool(
+    'steno_graph',
+    'Explore entity relationships in the knowledge graph',
+    {
+      entity_id: z.string().describe('Entity ID to explore'),
+      depth: z.number().optional().describe('Graph traversal depth (default 2)'),
+    },
+    async ({ entity_id, depth }) => {
+      // TODO: Replace with `await steno.graph.getRelated(entity_id, depth ?? 2)` once SDK supports it
+      const result = await (steno as any).memory.http.request<GraphResponse>(
+        'GET',
+        `/v1/graph/${encodeURIComponent(entity_id)}?depth=${depth ?? 2}`,
+      );
+      const entities = result.entities || [];
+      const edges = result.edges || [];
+      let text = `Graph for entity ${entity_id}:\n`;
+      text += `Entities: ${entities.length}\n`;
+      text += entities.map((e) => `  - ${e.name} (${e.entityType})`).join('\n');
+      text += `\nRelationships: ${edges.length}\n`;
+      text += edges.map((e) => `  - ${e.relation}`).join('\n');
+      return {
+        content: [{ type: 'text' as const, text }],
       };
     },
   );

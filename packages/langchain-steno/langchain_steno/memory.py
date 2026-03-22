@@ -82,6 +82,20 @@ class StenoMemory:
             except Exception:
                 pass  # Don't break the chain on memory failures
 
+    def get_profile(self) -> dict:
+        """Get structured user profile.
+
+        Returns a dict with 'static' and 'dynamic' keys containing
+        lists of known facts about the user.
+
+        Returns:
+            dict: Profile data, or empty dict on failure.
+        """
+        try:
+            return self.steno.profile(self.user_id)
+        except Exception:
+            return {}
+
     def clear(self) -> None:
         """Purge all memories for this user."""
         try:
