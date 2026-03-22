@@ -7,6 +7,8 @@ import type {
   VectorSearchResult,
   KeywordSearchOptions,
   KeywordSearchResult,
+  CompoundSearchOptions,
+  CompoundSearchResult,
   GraphTraversalOptions,
   GraphTraversalResult,
 } from '@steno-ai/engine';
@@ -667,6 +669,26 @@ export class SupabaseStorageAdapter implements StorageAdapter {
         rankScore,
       };
     });
+  }
+
+  async compoundSearch(options: CompoundSearchOptions): Promise<CompoundSearchResult[]> {
+    const { data, error } = await this.client.rpc('steno_search', {
+      query_embedding: `[${options.embedding.join(',')}]`,
+      search_query: options.query,
+      match_tenant_id: options.tenantId,
+      match_scope: options.scope,
+      match_scope_id: options.scopeId,
+      match_count: options.limit,
+      min_similarity: options.minSimilarity ?? 0,
+    });
+
+    if (error) throwSupabaseError('compoundSearch', error);
+
+    return (data ?? []).map((row: Record<string, unknown>) => ({
+      source: row['source'] as 'vector' | 'keyword',
+      fact: toCamelCase(row) as unknown as Fact,
+      relevanceScore: row['relevance_score'] as number,
+    }));
   }
 
   async getEntitiesForTenant(

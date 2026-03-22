@@ -8,11 +8,8 @@ import type { EmbeddingAdapter } from '../../src/adapters/embedding.js';
 import type { Fact, Entity, Edge } from '../../src/models/index.js';
 
 // --- Mock all sub-modules so we control their outputs ---
-vi.mock('../../src/retrieval/vector-search.js', () => ({
-  vectorSearch: vi.fn(),
-}));
-vi.mock('../../src/retrieval/keyword-search.js', () => ({
-  keywordSearch: vi.fn(),
+vi.mock('../../src/retrieval/compound-search.js', () => ({
+  compoundSearchSignal: vi.fn(),
 }));
 vi.mock('../../src/retrieval/graph-traversal.js', () => ({
   graphSearch: vi.fn(),
@@ -32,9 +29,11 @@ vi.mock('../../src/retrieval/contradiction-surfacer.js', () => ({
 vi.mock('../../src/feedback/tracker.js', () => ({
   recordAccesses: vi.fn(),
 }));
+vi.mock('../../src/retrieval/embedding-cache.js', () => ({
+  CachedEmbeddingAdapter: vi.fn().mockImplementation((inner: EmbeddingAdapter) => inner),
+}));
 
-import { vectorSearch } from '../../src/retrieval/vector-search.js';
-import { keywordSearch } from '../../src/retrieval/keyword-search.js';
+import { compoundSearchSignal } from '../../src/retrieval/compound-search.js';
 import { graphSearch } from '../../src/retrieval/graph-traversal.js';
 import { matchTriggers } from '../../src/retrieval/trigger-matcher.js';
 import { scoreSalience } from '../../src/retrieval/salience-scorer.js';
@@ -42,8 +41,7 @@ import { fuseAndRank } from '../../src/retrieval/fusion.js';
 import { surfaceContradictions } from '../../src/retrieval/contradiction-surfacer.js';
 import { recordAccesses } from '../../src/feedback/tracker.js';
 
-const mockVectorSearch = vi.mocked(vectorSearch);
-const mockKeywordSearch = vi.mocked(keywordSearch);
+const mockCompoundSearch = vi.mocked(compoundSearchSignal);
 const mockGraphSearch = vi.mocked(graphSearch);
 const mockMatchTriggers = vi.mocked(matchTriggers);
 const mockScoreSalience = vi.mocked(scoreSalience);
@@ -172,6 +170,7 @@ function createMockStorage(): StorageAdapter {
     updateDecayScores: vi.fn().mockResolvedValue(undefined),
     vectorSearch: vi.fn().mockResolvedValue([]),
     keywordSearch: vi.fn().mockResolvedValue([]),
+    compoundSearch: vi.fn().mockResolvedValue([]),
     createEntity: vi.fn(),
     getEntity: vi.fn(),
     findEntityByCanonicalName: vi.fn(),
@@ -194,6 +193,7 @@ function createMockStorage(): StorageAdapter {
     getExtraction: vi.fn(),
     updateExtraction: vi.fn(),
     getExtractionByHash: vi.fn(),
+    getExtractionsByTenant: vi.fn(),
     createSession: vi.fn(),
     getSession: vi.fn(),
     endSession: vi.fn(),
@@ -210,6 +210,11 @@ function createMockStorage(): StorageAdapter {
     incrementUsage: vi.fn(),
     getUsage: vi.fn(),
     getCurrentUsage: vi.fn(),
+    createWebhook: vi.fn(),
+    getWebhook: vi.fn(),
+    getWebhooksForTenant: vi.fn(),
+    getWebhooksByEvent: vi.fn(),
+    deleteWebhook: vi.fn(),
     ping: vi.fn().mockResolvedValue(true),
   } as unknown as StorageAdapter;
 }
@@ -251,8 +256,7 @@ function setupHappyPath() {
   const graphCandidates = [makeCandidate({ id: 'g1' }, { graphScore: 0.7, source: 'graph' })];
   const triggerCandidates = [makeCandidate({ id: 't1' }, { source: 'trigger', triggeredBy: 'trigger-abc' })];
 
-  mockVectorSearch.mockResolvedValue(vectorCandidates);
-  mockKeywordSearch.mockResolvedValue(keywordCandidates);
+  mockCompoundSearch.mockResolvedValue({ vectorCandidates, keywordCandidates });
   mockGraphSearch.mockResolvedValue(graphCandidates);
   mockMatchTriggers.mockResolvedValue({
     candidates: triggerCandidates,
@@ -311,16 +315,15 @@ describe('search orchestrator', () => {
   });
 
   describe('full pipeline happy path', () => {
-    it('query runs all 4 signals, scores salience, fuses, surfaces contradictions, and returns', async () => {
+    it('query runs compound search + graph + triggers, scores salience, fuses, surfaces contradictions, and returns', async () => {
       const { allCandidates, searchResults } = setupHappyPath();
       const config = makeConfig();
       const options = makeOptions();
 
       const response = await search(config, options);
 
-      // All 4 signals called
-      expect(mockVectorSearch).toHaveBeenCalledOnce();
-      expect(mockKeywordSearch).toHaveBeenCalledOnce();
+      // Compound search called (replaces separate vector + keyword)
+      expect(mockCompoundSearch).toHaveBeenCalledOnce();
       expect(mockGraphSearch).toHaveBeenCalledOnce();
       expect(mockMatchTriggers).toHaveBeenCalledOnce();
 
@@ -344,27 +347,25 @@ describe('search orchestrator', () => {
   });
 
   describe('graceful degradation', () => {
-    it('vector search fails, other signals still return results', async () => {
-      const kc = [makeCandidate({ id: 'k1' }, { keywordScore: 0.8, source: 'keyword' })];
+    it('compound search fails, other signals still return results', async () => {
       const gc = [makeCandidate({ id: 'g1' }, { graphScore: 0.7, source: 'graph' })];
 
-      mockVectorSearch.mockRejectedValue(new Error('embedding service down'));
-      mockKeywordSearch.mockResolvedValue(kc);
+      mockCompoundSearch.mockRejectedValue(new Error('embedding service down'));
       mockGraphSearch.mockResolvedValue(gc);
       mockMatchTriggers.mockResolvedValue({ candidates: [], triggersMatched: [] });
 
-      const combined = [...kc, ...gc];
+      const combined = [...gc];
       mockScoreSalience.mockReturnValue(combined);
       mockFuseAndRank.mockReturnValue(combined.map(c => ({
         fact: c.fact,
         score: 0.5,
-        signals: { vectorScore: 0, keywordScore: c.keywordScore, graphScore: c.graphScore, recencyScore: 0, salienceScore: 0 },
+        signals: { vectorScore: 0, keywordScore: 0, graphScore: c.graphScore, recencyScore: 0, salienceScore: 0 },
         source: c.source,
       })));
       mockSurfaceContradictions.mockResolvedValue(combined.map(c => ({
         fact: c.fact,
         score: 0.5,
-        signals: { vectorScore: 0, keywordScore: c.keywordScore, graphScore: c.graphScore, recencyScore: 0, salienceScore: 0 },
+        signals: { vectorScore: 0, keywordScore: 0, graphScore: c.graphScore, recencyScore: 0, salienceScore: 0 },
       })));
       mockRecordAccesses.mockResolvedValue(undefined);
 
@@ -372,33 +373,32 @@ describe('search orchestrator', () => {
       const response = await search(config, makeOptions());
 
       // Should NOT throw — graceful degradation
-      expect(response.results).toHaveLength(2);
-      expect(response.totalCandidates).toBe(2);
+      expect(response.results).toHaveLength(1);
+      expect(response.totalCandidates).toBe(1);
     });
 
-    it('keyword search fails, results from vector + graph + trigger', async () => {
+    it('graph search fails, compound results from vector + keyword', async () => {
       const vc = [makeCandidate({ id: 'v1' }, { vectorScore: 0.9, source: 'vector' })];
-      const gc = [makeCandidate({ id: 'g1' }, { graphScore: 0.7, source: 'graph' })];
+      const kc = [makeCandidate({ id: 'k1' }, { keywordScore: 0.8, source: 'keyword' })];
       const tc = [makeCandidate({ id: 't1' }, { source: 'trigger', triggeredBy: 'trig-1' })];
 
-      mockVectorSearch.mockResolvedValue(vc);
-      mockKeywordSearch.mockRejectedValue(new Error('full-text index missing'));
-      mockGraphSearch.mockResolvedValue(gc);
+      mockCompoundSearch.mockResolvedValue({ vectorCandidates: vc, keywordCandidates: kc });
+      mockGraphSearch.mockRejectedValue(new Error('graph index missing'));
       mockMatchTriggers.mockResolvedValue({ candidates: tc, triggersMatched: ['trig-1'] });
 
-      const combined = [...vc, ...gc, ...tc];
+      const combined = [...vc, ...kc, ...tc];
       mockScoreSalience.mockReturnValue(combined);
       mockFuseAndRank.mockReturnValue(combined.map(c => ({
         fact: c.fact,
         score: 0.5,
-        signals: { vectorScore: c.vectorScore, keywordScore: 0, graphScore: c.graphScore, recencyScore: 0, salienceScore: 0 },
+        signals: { vectorScore: c.vectorScore, keywordScore: c.keywordScore, graphScore: 0, recencyScore: 0, salienceScore: 0 },
         source: c.source,
         triggeredBy: c.triggeredBy,
       })));
       mockSurfaceContradictions.mockResolvedValue(combined.map(c => ({
         fact: c.fact,
         score: 0.5,
-        signals: { vectorScore: c.vectorScore, keywordScore: 0, graphScore: c.graphScore, recencyScore: 0, salienceScore: 0 },
+        signals: { vectorScore: c.vectorScore, keywordScore: c.keywordScore, graphScore: 0, recencyScore: 0, salienceScore: 0 },
         triggeredBy: c.triggeredBy,
       })));
       mockRecordAccesses.mockResolvedValue(undefined);
@@ -412,8 +412,7 @@ describe('search orchestrator', () => {
     });
 
     it('all signals fail returns empty results, not an error', async () => {
-      mockVectorSearch.mockRejectedValue(new Error('vector down'));
-      mockKeywordSearch.mockRejectedValue(new Error('keyword down'));
+      mockCompoundSearch.mockRejectedValue(new Error('compound down'));
       mockGraphSearch.mockRejectedValue(new Error('graph down'));
       mockMatchTriggers.mockRejectedValue(new Error('triggers down'));
 
@@ -445,9 +444,9 @@ describe('search orchestrator', () => {
       const fusionLimit = mockFuseAndRank.mock.calls[0][2];
       expect(fusionLimit).toBe(100);
 
-      // vectorSearch should be called with limit=300 (100 * 3 fetchMultiplier)
-      const vectorLimit = mockVectorSearch.mock.calls[0][6];
-      expect(vectorLimit).toBe(300);
+      // compoundSearch should be called with limit=300 (100 * 3 fetchMultiplier)
+      const compoundLimit = mockCompoundSearch.mock.calls[0][6];
+      expect(compoundLimit).toBe(300);
     });
 
     it('default limit is 10', async () => {
@@ -460,9 +459,9 @@ describe('search orchestrator', () => {
       const fusionLimit = mockFuseAndRank.mock.calls[0][2];
       expect(fusionLimit).toBe(10);
 
-      // vectorSearch called with 10 * 3 = 30
-      const vectorLimit = mockVectorSearch.mock.calls[0][6];
-      expect(vectorLimit).toBe(30);
+      // compoundSearch called with 10 * 3 = 30
+      const compoundLimit = mockCompoundSearch.mock.calls[0][6];
+      expect(compoundLimit).toBe(30);
     });
   });
 
@@ -517,8 +516,7 @@ describe('search orchestrator', () => {
 
   describe('response metadata', () => {
     it('triggersMatched returned in response', async () => {
-      mockVectorSearch.mockResolvedValue([]);
-      mockKeywordSearch.mockResolvedValue([]);
+      mockCompoundSearch.mockResolvedValue({ vectorCandidates: [], keywordCandidates: [] });
       mockGraphSearch.mockResolvedValue([]);
       mockMatchTriggers.mockResolvedValue({
         candidates: [makeCandidate({ id: 't1' }, { source: 'trigger', triggeredBy: 'trig-x' })],
@@ -557,8 +555,7 @@ describe('search orchestrator', () => {
         makeCandidate({ id: 'k1' }, { keywordScore: 0.7, source: 'keyword' }),
       ];
 
-      mockVectorSearch.mockResolvedValue(vc);
-      mockKeywordSearch.mockResolvedValue(kc);
+      mockCompoundSearch.mockResolvedValue({ vectorCandidates: vc, keywordCandidates: kc });
       mockGraphSearch.mockResolvedValue([]);
       mockMatchTriggers.mockResolvedValue({ candidates: [], triggersMatched: [] });
 
@@ -606,8 +603,10 @@ describe('search orchestrator', () => {
         signals: { vectorScore: 0.8, keywordScore: 0.5, graphScore: 0.3, recencyScore: 0.7, salienceScore: 0.6 },
       };
 
-      mockVectorSearch.mockResolvedValue([makeCandidate({ id: 'fact-graph' }, { vectorScore: 0.9, source: 'vector' })]);
-      mockKeywordSearch.mockResolvedValue([]);
+      mockCompoundSearch.mockResolvedValue({
+        vectorCandidates: [makeCandidate({ id: 'fact-graph' }, { vectorScore: 0.9, source: 'vector' })],
+        keywordCandidates: [],
+      });
       mockGraphSearch.mockResolvedValue([]);
       mockMatchTriggers.mockResolvedValue({ candidates: [], triggersMatched: [] });
 
@@ -648,8 +647,10 @@ describe('search orchestrator', () => {
       const historyFact1 = makeFact({ id: 'fact-v1', lineageId: 'lineage-x', version: 1 });
       const historyFact2 = makeFact({ id: 'fact-v2', lineageId: 'lineage-x', version: 2 });
 
-      mockVectorSearch.mockResolvedValue([makeCandidate({ id: 'fact-v3', lineageId: 'lineage-x', version: 3 }, { vectorScore: 0.9, source: 'vector' })]);
-      mockKeywordSearch.mockResolvedValue([]);
+      mockCompoundSearch.mockResolvedValue({
+        vectorCandidates: [makeCandidate({ id: 'fact-v3', lineageId: 'lineage-x', version: 3 }, { vectorScore: 0.9, source: 'vector' })],
+        keywordCandidates: [],
+      });
       mockGraphSearch.mockResolvedValue([]);
       mockMatchTriggers.mockResolvedValue({ candidates: [], triggersMatched: [] });
 
@@ -694,8 +695,7 @@ describe('search orchestrator', () => {
 
   describe('empty query', () => {
     it('empty query with no matches returns empty results, not error', async () => {
-      mockVectorSearch.mockResolvedValue([]);
-      mockKeywordSearch.mockResolvedValue([]);
+      mockCompoundSearch.mockResolvedValue({ vectorCandidates: [], keywordCandidates: [] });
       mockGraphSearch.mockResolvedValue([]);
       mockMatchTriggers.mockResolvedValue({ candidates: [], triggersMatched: [] });
 
@@ -720,8 +720,10 @@ describe('search orchestrator', () => {
         signals: { vectorScore: 0.9, keywordScore: 0, graphScore: 0, recencyScore: 0.5, salienceScore: 0.6 },
       };
 
-      mockVectorSearch.mockResolvedValue([makeCandidate({ id: 'fact-decay' }, { vectorScore: 0.9, source: 'vector' })]);
-      mockKeywordSearch.mockResolvedValue([]);
+      mockCompoundSearch.mockResolvedValue({
+        vectorCandidates: [makeCandidate({ id: 'fact-decay' }, { vectorScore: 0.9, source: 'vector' })],
+        keywordCandidates: [],
+      });
       mockGraphSearch.mockResolvedValue([]);
       mockMatchTriggers.mockResolvedValue({ candidates: [], triggersMatched: [] });
 
@@ -763,8 +765,10 @@ describe('search orchestrator', () => {
         signals: { vectorScore: 0.9, keywordScore: 0, graphScore: 0, recencyScore: 0.5, salienceScore: 0.6 },
       };
 
-      mockVectorSearch.mockResolvedValue([makeCandidate({ id: 'fact-access' }, { vectorScore: 0.9, source: 'vector' })]);
-      mockKeywordSearch.mockResolvedValue([]);
+      mockCompoundSearch.mockResolvedValue({
+        vectorCandidates: [makeCandidate({ id: 'fact-access' }, { vectorScore: 0.9, source: 'vector' })],
+        keywordCandidates: [],
+      });
       mockGraphSearch.mockResolvedValue([]);
       mockMatchTriggers.mockResolvedValue({ candidates: [], triggersMatched: [] });
 
@@ -806,8 +810,10 @@ describe('search orchestrator', () => {
         signals: { vectorScore: 0.9, keywordScore: 0, graphScore: 0, recencyScore: 0.5, salienceScore: 0.6 },
       };
 
-      mockVectorSearch.mockResolvedValue([makeCandidate({ id: 'fact-err-access' }, { vectorScore: 0.9, source: 'vector' })]);
-      mockKeywordSearch.mockResolvedValue([]);
+      mockCompoundSearch.mockResolvedValue({
+        vectorCandidates: [makeCandidate({ id: 'fact-err-access' }, { vectorScore: 0.9, source: 'vector' })],
+        keywordCandidates: [],
+      });
       mockGraphSearch.mockResolvedValue([]);
       mockMatchTriggers.mockResolvedValue({ candidates: [], triggersMatched: [] });
 
@@ -843,12 +849,14 @@ describe('search orchestrator', () => {
       const fact2 = makeFact({ id: 'fact-high' });
       const fact3 = makeFact({ id: 'fact-mid' });
 
-      mockVectorSearch.mockResolvedValue([
-        makeCandidate({ id: 'fact-low' }, { vectorScore: 0.3, source: 'vector' }),
-        makeCandidate({ id: 'fact-high' }, { vectorScore: 0.9, source: 'vector' }),
-        makeCandidate({ id: 'fact-mid' }, { vectorScore: 0.6, source: 'vector' }),
-      ]);
-      mockKeywordSearch.mockResolvedValue([]);
+      mockCompoundSearch.mockResolvedValue({
+        vectorCandidates: [
+          makeCandidate({ id: 'fact-low' }, { vectorScore: 0.3, source: 'vector' }),
+          makeCandidate({ id: 'fact-high' }, { vectorScore: 0.9, source: 'vector' }),
+          makeCandidate({ id: 'fact-mid' }, { vectorScore: 0.6, source: 'vector' }),
+        ],
+        keywordCandidates: [],
+      });
       mockGraphSearch.mockResolvedValue([]);
       mockMatchTriggers.mockResolvedValue({ candidates: [], triggersMatched: [] });
 
@@ -886,23 +894,21 @@ describe('search orchestrator', () => {
   });
 
   describe('signal arguments', () => {
-    it('vectorSearch receives correct arguments including temporalFilter.asOf', async () => {
+    it('compoundSearch receives correct arguments', async () => {
       setupHappyPath();
-      const asOf = new Date('2025-03-01');
       const config = makeConfig();
-      const options = makeOptions({ temporalFilter: { asOf } });
+      const options = makeOptions();
 
       await search(config, options);
 
-      expect(mockVectorSearch).toHaveBeenCalledWith(
+      expect(mockCompoundSearch).toHaveBeenCalledWith(
         config.storage,
-        config.embedding,
+        expect.anything(), // effectiveEmbedding (may be wrapped with cache)
         options.query,
         'tenant-1',
         'user',
         'user-1',
         30, // 10 * 3
-        asOf,
       );
     });
 
@@ -915,13 +921,13 @@ describe('search orchestrator', () => {
 
       expect(mockGraphSearch).toHaveBeenCalledWith(
         config.storage,
-        config.embedding,
+        expect.anything(), // effectiveEmbedding
         options.query,
         'tenant-1',
         'user',
         'user-1',
         30, // 10 * 3
-        { maxDepth: 4, maxEntities: 100 },
+        { maxDepth: 4, maxEntities: 100, asOf: undefined },
       );
     });
 

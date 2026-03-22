@@ -7,6 +7,8 @@ import type {
   VectorSearchResult,
   KeywordSearchOptions,
   KeywordSearchResult,
+  CompoundSearchOptions,
+  CompoundSearchResult,
   GraphTraversalOptions,
   GraphTraversalResult,
 } from '@steno-ai/engine';
@@ -789,6 +791,36 @@ export class SQLiteStorageAdapter implements StorageAdapter {
 
     results.sort((a, b) => b.rankScore - a.rankScore);
     return results.slice(0, limit);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Compound search (vector + keyword in sequence; SQLite is local so this is fast)
+  // ---------------------------------------------------------------------------
+
+  async compoundSearch(options: CompoundSearchOptions): Promise<CompoundSearchResult[]> {
+    const vectorResults = await this.vectorSearch({
+      embedding: options.embedding,
+      tenantId: options.tenantId,
+      scope: options.scope,
+      scopeId: options.scopeId,
+      limit: options.limit,
+      minSimilarity: options.minSimilarity,
+      validOnly: true,
+    });
+
+    const keywordResults = await this.keywordSearch({
+      query: options.query,
+      tenantId: options.tenantId,
+      scope: options.scope,
+      scopeId: options.scopeId,
+      limit: options.limit,
+      validOnly: true,
+    });
+
+    return [
+      ...vectorResults.map(r => ({ source: 'vector' as const, fact: r.fact, relevanceScore: r.similarity })),
+      ...keywordResults.map(r => ({ source: 'keyword' as const, fact: r.fact, relevanceScore: r.rankScore })),
+    ];
   }
 
   // ---------------------------------------------------------------------------

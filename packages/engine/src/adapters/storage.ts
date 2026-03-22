@@ -64,6 +64,22 @@ export interface KeywordSearchResult {
   rankScore: number;  // ts_rank score from PostgreSQL
 }
 
+export interface CompoundSearchOptions {
+  embedding: number[];
+  query: string;  // for keyword search
+  tenantId: string;
+  scope: string;
+  scopeId: string;
+  limit: number;
+  minSimilarity?: number;
+}
+
+export interface CompoundSearchResult {
+  source: 'vector' | 'keyword';
+  fact: Fact;
+  relevanceScore: number;
+}
+
 export interface GraphTraversalOptions {
   tenantId: string;
   entityIds: string[];
@@ -94,6 +110,9 @@ export interface StorageAdapter {
 
   // Keyword search
   keywordSearch(options: KeywordSearchOptions): Promise<KeywordSearchResult[]>;
+
+  // Compound search (vector + keyword in one call)
+  compoundSearch(options: CompoundSearchOptions): Promise<CompoundSearchResult[]>;
 
   // Entities
   createEntity(entity: CreateEntity & { id: string; embedding?: number[]; embeddingModel?: string; embeddingDim?: number }): Promise<Entity>;

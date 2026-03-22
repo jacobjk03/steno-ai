@@ -1,19 +1,21 @@
 import type { StorageAdapter } from '../adapters/storage.js';
 import type { EmbeddingAdapter } from '../adapters/embedding.js';
+import type { CacheAdapter } from '../adapters/cache.js';
 import type { SearchOptions, SearchResponse, FusionWeights, Candidate } from './types.js';
 import { DEFAULT_FUSION_WEIGHTS } from './types.js';
-import { vectorSearch } from './vector-search.js';
-import { keywordSearch } from './keyword-search.js';
+import { compoundSearchSignal } from './compound-search.js';
 import { graphSearch } from './graph-traversal.js';
 import { matchTriggers } from './trigger-matcher.js';
 import { scoreSalience } from './salience-scorer.js';
 import { fuseAndRank } from './fusion.js';
 import { surfaceContradictions } from './contradiction-surfacer.js';
 import { recordAccesses } from '../feedback/tracker.js';
+import { CachedEmbeddingAdapter } from './embedding-cache.js';
 
 export interface SearchConfig {
   storage: StorageAdapter;
   embedding: EmbeddingAdapter;
+  cache?: CacheAdapter;  // if provided, wraps embedding with cache
   defaultWeights?: FusionWeights;
   salienceHalfLifeDays?: number;
   salienceNormalizationK?: number;
@@ -30,17 +32,23 @@ export async function search(
   const weights = options.weights ?? config.defaultWeights ?? DEFAULT_FUSION_WEIGHTS;
   const fetchMultiplier = 3; // fetch 3x limit from each signal for better fusion
 
-  // 1. Run all signals in PARALLEL using Promise.allSettled (graceful degradation)
-  const [vectorSettled, keywordSettled, graphSettled, triggerSettled] = await Promise.allSettled([
-    vectorSearch(config.storage, config.embedding, options.query, options.tenantId, options.scope, options.scopeId, limit * fetchMultiplier, options.temporalFilter?.asOf),
-    keywordSearch(config.storage, options.query, options.tenantId, options.scope, options.scopeId, limit * fetchMultiplier, options.temporalFilter?.asOf),
-    graphSearch(config.storage, config.embedding, options.query, options.tenantId, options.scope, options.scopeId, limit * fetchMultiplier, { maxDepth: config.graphMaxDepth, maxEntities: config.graphMaxEntities, asOf: options.temporalFilter?.asOf }),
-    matchTriggers(config.storage, config.embedding, options.query, options.tenantId, options.scope, options.scopeId),
+  // Wrap embedding with cache if available
+  const effectiveEmbedding = config.cache
+    ? new CachedEmbeddingAdapter(config.embedding, config.cache)
+    : config.embedding;
+
+  // 1. Run signals in PARALLEL using Promise.allSettled (graceful degradation)
+  //    Compound search replaces separate vector + keyword calls (2 DB calls → 1)
+  const [compoundSettled, graphSettled, triggerSettled] = await Promise.allSettled([
+    compoundSearchSignal(config.storage, effectiveEmbedding, options.query, options.tenantId, options.scope, options.scopeId, limit * fetchMultiplier),
+    graphSearch(config.storage, effectiveEmbedding, options.query, options.tenantId, options.scope, options.scopeId, limit * fetchMultiplier, { maxDepth: config.graphMaxDepth, maxEntities: config.graphMaxEntities, asOf: options.temporalFilter?.asOf }),
+    matchTriggers(config.storage, effectiveEmbedding, options.query, options.tenantId, options.scope, options.scopeId),
   ]);
 
   // Extract results, using empty arrays for failed signals (graceful degradation)
-  const vectorCandidates = vectorSettled.status === 'fulfilled' ? vectorSettled.value : [];
-  const keywordCandidates = keywordSettled.status === 'fulfilled' ? keywordSettled.value : [];
+  const compoundResult = compoundSettled.status === 'fulfilled' ? compoundSettled.value : { vectorCandidates: [], keywordCandidates: [] };
+  const vectorCandidates = compoundResult.vectorCandidates;
+  const keywordCandidates = compoundResult.keywordCandidates;
   const graphCandidates = graphSettled.status === 'fulfilled' ? graphSettled.value : [];
   const triggerResult = triggerSettled.status === 'fulfilled' ? triggerSettled.value : { candidates: [], triggersMatched: [] };
   const triggersMatched = triggerResult.triggersMatched;
