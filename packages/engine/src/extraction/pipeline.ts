@@ -184,6 +184,12 @@ async function executeExtraction(
   // Collect the first persisted factId to anchor edges (edges reference a fact).
   let firstFactId: string | undefined;
 
+  // ── BATCH EMBED all extracted facts at once (1 API call instead of N) ──
+  const factsToEmbed = contradictionResults.filter(r => r.fact.operation !== 'noop');
+  const factTexts = factsToEmbed.map(r => r.fact.content);
+  const factEmbeddings = factTexts.length > 0 ? await config.embedding.embedBatch(factTexts) : [];
+  let factEmbIdx = 0;
+
   // Persist facts and link entities per-fact.
   for (const { fact, contradictionStatus, contradictsId } of contradictionResults) {
     // Skip noop facts
@@ -202,8 +208,8 @@ async function executeExtraction(
       lineageId = crypto.randomUUID();
     }
 
-    // Embed fact content
-    const embedding = await config.embedding.embed(fact.content);
+    // Use pre-computed batch embedding
+    const embedding = factEmbeddings[factEmbIdx++] ?? await config.embedding.embed(fact.content);
 
     // Create fact in storage
     await config.storage.createFact({
@@ -283,12 +289,17 @@ async function executeExtraction(
   if (input.inputType === 'conversation' && typeof input.data === 'object' && input.data !== null) {
     const messages = (input.data as Record<string, unknown>).messages as Array<{ role: string; content: string }> | undefined;
     if (messages && Array.isArray(messages)) {
-      for (const msg of messages) {
-        if (!msg.content || msg.content.trim().length < 10) continue;
+      // Filter valid messages
+      const validMsgs = messages.filter(msg => msg.content && msg.content.trim().length >= 10);
 
+      // ── BATCH EMBED all chunks at once ──
+      const chunkTexts = validMsgs.map(msg => msg.content);
+      const chunkEmbeddings = chunkTexts.length > 0 ? await config.embedding.embedBatch(chunkTexts) : [];
+
+      for (let ci = 0; ci < validMsgs.length; ci++) {
+        const msg = validMsgs[ci]!;
         const chunkId = crypto.randomUUID();
         const chunkLineageId = crypto.randomUUID();
-        const chunkEmbedding = await config.embedding.embed(msg.content);
 
         await config.storage.createFact({
           id: chunkId,
@@ -300,7 +311,7 @@ async function executeExtraction(
           content: `${msg.role}: ${msg.content}`,
           embeddingModel: config.embeddingModel,
           embeddingDim: config.embeddingDim,
-          embedding: chunkEmbedding,
+          embedding: chunkEmbeddings[ci] ?? [],
           importance: 0.3,
           confidence: 1.0,
           operation: 'create',
@@ -318,10 +329,14 @@ async function executeExtraction(
     }
   } else if (typeof input.data === 'string' && input.data.length > 50) {
     const paragraphs = input.data.split(/\n\n+/).filter(p => p.trim().length > 50);
-    for (const para of paragraphs) {
+
+    // ── BATCH EMBED all paragraphs at once ──
+    const paraEmbeddings = paragraphs.length > 0 ? await config.embedding.embedBatch(paragraphs) : [];
+
+    for (let pi = 0; pi < paragraphs.length; pi++) {
+      const para = paragraphs[pi]!;
       const chunkId = crypto.randomUUID();
       const chunkLineageId = crypto.randomUUID();
-      const chunkEmbedding = await config.embedding.embed(para);
 
       await config.storage.createFact({
         id: chunkId,
@@ -333,7 +348,7 @@ async function executeExtraction(
         content: para,
         embeddingModel: config.embeddingModel,
         embeddingDim: config.embeddingDim,
-        embedding: chunkEmbedding,
+        embedding: paraEmbeddings[pi] ?? [],
         importance: 0.3,
         confidence: 1.0,
         operation: 'create',

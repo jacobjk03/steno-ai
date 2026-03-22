@@ -1,0 +1,47 @@
+[
+  {
+    "id": "118b2229",
+    "type": "single-session-user",
+    "question": "How long is my daily commute to work?",
+    "answer": "45 minutes each way",
+    "hypothesis": "Your daily commute to work is 45 minutes each way.",
+    "correct": true,
+    "reason": "The hypothesis accurately reflects the key fact from the ground truth that the commute is 45 minutes each way."
+  },
+  {
+    "id": "1e043500",
+    "type": "single-session-user",
+    "question": "What is the name of the playlist I created on Spotify?",
+    "answer": "Summer Vibes",
+    "hypothesis": "The name of the playlist you created on Spotify is \"Summer Vibes.\"",
+    "correct": true,
+    "reason": "The hypothesis correctly identifies the name of the playlist as 'Summer Vibes,' matching the ground truth."
+  },
+  {
+    "id": "51a45a95",
+    "type": "single-session-user",
+    "question": "Where did I redeem a $5 coupon on coffee creamer?",
+    "answer": "Target",
+    "hypothesis": "You redeemed the $5 coupon on coffee creamer last Sunday.",
+    "correct": false,
+    "reason": "The hypothesis does not match the ground truth. The ground truth is 'Target,' which is a store name, while the hypothesis is about redeeming a coupon on coffee creamer."
+  },
+  {
+    "id": "58bf7951",
+    "type": "single-session-user",
+    "question": "What play did I attend at the local community theater?",
+    "answer": "The Glass Menagerie",
+    "hypothesis": "You attended a production of \"The Glass Menagerie\" at the local community theater.",
+    "correct": false,
+    "reason": "The hypothesis adds specific details about attending a production at a local community theater, which are not present in the ground truth."
+  },
+  {
+    "id": "e47becba",
+    "type": "single-session-user",
+    "question": "What degree did I graduate with?",
+    "answer": "Business Administration",
+    "hypothesis": "You graduated with a degree in Business Administration.",
+    "correct": true,
+    "reason": "The hypothesis correctly identifies the degree as Business Administration, matching the ground truth."
+  }
+]
