@@ -46,4 +46,32 @@ export class MemoryClient {
   async purge(scope: string, scopeId: string): Promise<void> {
     return this.http.request('DELETE', `/v1/memory`, { scope, scopeId });
   }
+
+  /** Update a memory's content (creates new version, invalidates old). */
+  async update(factId: string, content: string): Promise<any> {
+    return this.http.request('PATCH', `/v1/memory/${factId}`, { content });
+  }
+
+  /** List memories (paginated). */
+  async list(options: { scope: string; scopeId: string; limit?: number; cursor?: string }): Promise<any> {
+    const params = new URLSearchParams({ scope: options.scope, scope_id: options.scopeId });
+    if (options.limit) params.set('limit', String(options.limit));
+    if (options.cursor) params.set('cursor', options.cursor);
+    return this.http.request('GET', `/v1/memory?${params}`);
+  }
+
+  /** Export all data for a scope. */
+  async export(scope: string, scopeId: string): Promise<any> {
+    return this.http.request('GET', `/v1/export?scope=${scope}&scope_id=${scopeId}`);
+  }
+
+  /** Batch add memories. */
+  async addBatch(items: Array<{ scope: string; scopeId: string; data: unknown; inputType?: string }>): Promise<any> {
+    return this.http.request('POST', '/v1/memory/batch', { items });
+  }
+
+  /** Batch search memories. */
+  async searchBatch(queries: Array<{ query: string; scope: string; scopeId: string; limit?: number }>): Promise<any> {
+    return this.http.request('POST', '/v1/memory/search/batch', { queries });
+  }
 }

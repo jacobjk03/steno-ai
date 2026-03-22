@@ -108,6 +108,16 @@ export interface ApiKey {
   createdAt: string;
 }
 
+// ── Profile ──
+
+export interface UserProfile {
+  userId: string;
+  factsCount: number;
+  firstSeen: string;
+  lastSeen: string;
+  topTopics: string[];
+}
+
 // ── Usage ──
 
 export interface UsageResponse {

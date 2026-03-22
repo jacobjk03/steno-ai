@@ -405,3 +405,262 @@ describe('full API', () => {
     });
   });
 });
+
+// ── steno.profile() ──
+
+describe('steno.profile()', () => {
+  it('sends GET /v1/profile with scope params', async () => {
+    const fetchMock = mockFetch(200, {
+      data: {
+        user_id: 'u1',
+        facts_count: 10,
+        first_seen: '2025-01-01',
+        last_seen: '2025-06-01',
+        top_topics: ['food', 'work'],
+      },
+    });
+    globalThis.fetch = fetchMock;
+    const steno = new Steno('sk_test');
+
+    const profile = await steno.profile('u1');
+
+    expect(profile).toEqual({
+      userId: 'u1',
+      factsCount: 10,
+      firstSeen: '2025-01-01',
+      lastSeen: '2025-06-01',
+      topTopics: ['food', 'work'],
+    });
+
+    const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.steno.ai/v1/profile?scope=user&scope_id=u1');
+    expect(opts.method).toBe('GET');
+  });
+});
+
+// ── steno.update() ──
+
+describe('steno.update()', () => {
+  it('sends PATCH /v1/memory/:id with content', async () => {
+    const fetchMock = mockFetch(200, { data: { id: 'f1', content: 'updated' } });
+    globalThis.fetch = fetchMock;
+    const steno = new Steno('sk_test');
+
+    await steno.update('f1', 'updated content');
+
+    const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.steno.ai/v1/memory/f1');
+    expect(opts.method).toBe('PATCH');
+
+    const body = JSON.parse(opts.body as string);
+    expect(body).toEqual({ content: 'updated content' });
+  });
+});
+
+// ── memory.list() ──
+
+describe('memory.list()', () => {
+  it('sends GET /v1/memory with query params', async () => {
+    const fetchMock = mockFetch(200, { data: { items: [], cursor: null } });
+    globalThis.fetch = fetchMock;
+    const steno = new Steno('sk_test');
+
+    await steno.memory.list({ scope: 'user', scopeId: 'u1', limit: 10 });
+
+    const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/memory?');
+    expect(url).toContain('scope=user');
+    expect(url).toContain('scope_id=u1');
+    expect(url).toContain('limit=10');
+    expect(opts.method).toBe('GET');
+  });
+
+  it('includes cursor when provided', async () => {
+    const fetchMock = mockFetch(200, { data: { items: [], cursor: null } });
+    globalThis.fetch = fetchMock;
+    const steno = new Steno('sk_test');
+
+    await steno.memory.list({ scope: 'user', scopeId: 'u1', cursor: 'abc123' });
+
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('cursor=abc123');
+  });
+});
+
+// ── memory.export() ──
+
+describe('memory.export()', () => {
+  it('sends GET /v1/export with scope params', async () => {
+    const fetchMock = mockFetch(200, { data: { facts: [] } });
+    globalThis.fetch = fetchMock;
+    const steno = new Steno('sk_test');
+
+    await steno.memory.export('user', 'u1');
+
+    const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.steno.ai/v1/export?scope=user&scope_id=u1');
+    expect(opts.method).toBe('GET');
+  });
+});
+
+// ── memory.addBatch() ──
+
+describe('memory.addBatch()', () => {
+  it('sends POST /v1/memory/batch with items', async () => {
+    const fetchMock = mockFetch(200, { data: { results: [] } });
+    globalThis.fetch = fetchMock;
+    const steno = new Steno('sk_test');
+
+    const items = [
+      { scope: 'user', scopeId: 'u1', data: 'fact 1' },
+      { scope: 'user', scopeId: 'u1', data: 'fact 2', inputType: 'raw_text' },
+    ];
+    await steno.memory.addBatch(items);
+
+    const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.steno.ai/v1/memory/batch');
+    expect(opts.method).toBe('POST');
+
+    const body = JSON.parse(opts.body as string);
+    expect(body.items).toHaveLength(2);
+    expect(body.items[0]).toEqual({ scope: 'user', scope_id: 'u1', data: 'fact 1' });
+    expect(body.items[1]).toEqual({ scope: 'user', scope_id: 'u1', data: 'fact 2', input_type: 'raw_text' });
+  });
+});
+
+// ── memory.searchBatch() ──
+
+describe('memory.searchBatch()', () => {
+  it('sends POST /v1/memory/search/batch with queries', async () => {
+    const fetchMock = mockFetch(200, { data: { results: [] } });
+    globalThis.fetch = fetchMock;
+    const steno = new Steno('sk_test');
+
+    const queries = [
+      { query: 'food', scope: 'user', scopeId: 'u1', limit: 5 },
+      { query: 'work', scope: 'user', scopeId: 'u1' },
+    ];
+    await steno.memory.searchBatch(queries);
+
+    const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.steno.ai/v1/memory/search/batch');
+    expect(opts.method).toBe('POST');
+
+    const body = JSON.parse(opts.body as string);
+    expect(body.queries).toHaveLength(2);
+    expect(body.queries[0]).toEqual({ query: 'food', scope: 'user', scope_id: 'u1', limit: 5 });
+  });
+});
+
+// ── Graph API ──
+
+describe('graph', () => {
+  it('listEntities sends GET /v1/entities', async () => {
+    const fetchMock = mockFetch(200, { data: { entities: [] } });
+    globalThis.fetch = fetchMock;
+    const steno = new Steno('sk_test');
+
+    await steno.graph.listEntities({ limit: 10 });
+
+    const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/entities?');
+    expect(url).toContain('limit=10');
+    expect(opts.method).toBe('GET');
+  });
+
+  it('listEntities works without options', async () => {
+    const fetchMock = mockFetch(200, { data: { entities: [] } });
+    globalThis.fetch = fetchMock;
+    const steno = new Steno('sk_test');
+
+    await steno.graph.listEntities();
+
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/entities?');
+  });
+
+  it('getEntity sends GET /v1/entities/:id', async () => {
+    const fetchMock = mockFetch(200, { data: { id: 'ent_1', name: 'Pizza' } });
+    globalThis.fetch = fetchMock;
+    const steno = new Steno('sk_test');
+
+    const entity = await steno.graph.getEntity('ent_1');
+
+    expect(entity).toEqual({ id: 'ent_1', name: 'Pizza' });
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.steno.ai/v1/entities/ent_1');
+  });
+
+  it('getRelated sends GET /v1/entities/:id/graph', async () => {
+    const fetchMock = mockFetch(200, { data: { nodes: [], edges: [] } });
+    globalThis.fetch = fetchMock;
+    const steno = new Steno('sk_test');
+
+    await steno.graph.getRelated('ent_1', 2);
+
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.steno.ai/v1/entities/ent_1/graph?depth=2');
+  });
+
+  it('getRelated works without depth', async () => {
+    const fetchMock = mockFetch(200, { data: { nodes: [], edges: [] } });
+    globalThis.fetch = fetchMock;
+    const steno = new Steno('sk_test');
+
+    await steno.graph.getRelated('ent_1');
+
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.steno.ai/v1/entities/ent_1/graph');
+  });
+});
+
+// ── Webhooks API ──
+
+describe('webhooks', () => {
+  it('create sends POST /v1/webhooks', async () => {
+    const fetchMock = mockFetch(200, { data: { id: 'wh_1', url: 'https://example.com/hook' } });
+    globalThis.fetch = fetchMock;
+    const steno = new Steno('sk_test');
+
+    await steno.webhooks.create({
+      url: 'https://example.com/hook',
+      events: ['memory.created', 'memory.updated'],
+      secret: 'whsec_123',
+    });
+
+    const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.steno.ai/v1/webhooks');
+    expect(opts.method).toBe('POST');
+
+    const body = JSON.parse(opts.body as string);
+    expect(body).toEqual({
+      url: 'https://example.com/hook',
+      events: ['memory.created', 'memory.updated'],
+      secret: 'whsec_123',
+    });
+  });
+
+  it('list sends GET /v1/webhooks', async () => {
+    const fetchMock = mockFetch(200, { data: [] });
+    globalThis.fetch = fetchMock;
+    const steno = new Steno('sk_test');
+
+    await steno.webhooks.list();
+
+    const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.steno.ai/v1/webhooks');
+    expect(opts.method).toBe('GET');
+  });
+
+  it('delete sends DELETE /v1/webhooks/:id', async () => {
+    const fetchMock = mockFetch(204, null);
+    globalThis.fetch = fetchMock;
+    const steno = new Steno('sk_test');
+
+    await steno.webhooks.delete('wh_1');
+
+    const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.steno.ai/v1/webhooks/wh_1');
+    expect(opts.method).toBe('DELETE');
+  });
+});
