@@ -92,6 +92,34 @@ importers:
         specifier: ^3
         version: 3.2.4(@types/node@25.5.0)
 
+  packages/local:
+    dependencies:
+      '@hono/node-server':
+        specifier: ^1
+        version: 1.19.11(hono@4.12.8)
+      '@steno-ai/cache-adapter':
+        specifier: workspace:*
+        version: link:../cache-adapter
+      '@steno-ai/engine':
+        specifier: workspace:*
+        version: link:../engine
+      '@steno-ai/openai-compat-adapter':
+        specifier: workspace:*
+        version: link:../openai-compat-adapter
+      '@steno-ai/sqlite-adapter':
+        specifier: workspace:*
+        version: link:../sqlite-adapter
+      hono:
+        specifier: ^4
+        version: 4.12.8
+    devDependencies:
+      typescript:
+        specifier: ^5.7
+        version: 5.9.3
+      vitest:
+        specifier: ^3
+        version: 3.2.4(@types/node@25.5.0)
+
   packages/openai-adapter:
     dependencies:
       '@steno-ai/engine':
@@ -512,6 +540,12 @@ packages:
   '@fastify/busboy@2.1.1':
     resolution: {integrity: sha512-vBZP4NlzfOlerQTnba4aqZoMhE/a9HY7HRqoOPaETQcSQuWEIyZMHGfVu6w9wGtGK5fED5qRs2DteVCjOH60sA==}
     engines: {node: '>=14'}
+
+  '@hono/node-server@1.19.11':
+    resolution: {integrity: sha512-dr8/3zEaB+p0D2n/IUrlPF1HZm586qgJNXK1a9fhg/PzdtkK7Ksd5l312tJX2yBuALqDYBlG20QEbayqPyxn+g==}
+    engines: {node: '>=18.14.1'}
+    peerDependencies:
+      hono: ^4
 
   '@img/sharp-darwin-arm64@0.33.5':
     resolution: {integrity: sha512-UT4p+iz/2H4twwAoLCqfA9UH5pI6DggwKEGuaPy7nCVQ8ZsiY5PIcrRvD1DzuY3qYL07NtIQcWnBSY/heikIFQ==}
@@ -1785,6 +1819,10 @@ snapshots:
     optional: true
 
   '@fastify/busboy@2.1.1': {}
+
+  '@hono/node-server@1.19.11(hono@4.12.8)':
+    dependencies:
+      hono: 4.12.8
 
   '@img/sharp-darwin-arm64@0.33.5':
     optionalDependencies:

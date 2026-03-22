@@ -1,0 +1,26 @@
+{
+  "name": "@steno-ai/local",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "bin": { "steno": "./dist/cli.js" },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@steno-ai/engine": "workspace:*",
+    "@steno-ai/sqlite-adapter": "workspace:*",
+    "@steno-ai/openai-compat-adapter": "workspace:*",
+    "@steno-ai/cache-adapter": "workspace:*",
+    "hono": "^4",
+    "@hono/node-server": "^1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7",
+    "vitest": "^3"
+  }
+}
