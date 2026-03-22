@@ -59,11 +59,32 @@ export async function graphSearch(
   if (tokens.length === 0) return [];
 
   const seedEntityIds: string[] = [];
+
+  // Always include "User" entity as a seed — most queries are about the user
+  const userEntity = await storage.findEntityByCanonicalName(tenantId, 'user', 'person');
+  if (userEntity) {
+    seedEntityIds.push(userEntity.id);
+  }
+
+  // Try exact token matching against entity canonical names
   for (const token of tokens) {
     for (const entityType of ENTITY_TYPES) {
       const entity = await storage.findEntityByCanonicalName(tenantId, token, entityType);
       if (entity && !seedEntityIds.includes(entity.id)) {
         seedEntityIds.push(entity.id);
+      }
+    }
+  }
+
+  // Also try multi-word combinations (e.g., "brightwell capital" from tokens ["brightwell", "capital"])
+  if (tokens.length >= 2) {
+    for (let i = 0; i < tokens.length - 1; i++) {
+      const twoWord = `${tokens[i]} ${tokens[i + 1]}`;
+      for (const entityType of ENTITY_TYPES) {
+        const entity = await storage.findEntityByCanonicalName(tenantId, twoWord, entityType);
+        if (entity && !seedEntityIds.includes(entity.id)) {
+          seedEntityIds.push(entity.id);
+        }
       }
     }
   }
