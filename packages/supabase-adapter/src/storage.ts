@@ -616,6 +616,15 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       .eq('scope_id', scopeId);
     if (deleteError) throwSupabaseError('purgeFacts', deleteError);
 
+    // Also delete extraction records for this scope so dedup cache doesn't serve stale results
+    const { error: extractionError } = await this.client
+      .from('extractions')
+      .delete()
+      .eq('tenant_id', tenantId)
+      .eq('scope', scope)
+      .eq('scope_id', scopeId);
+    if (extractionError) throwSupabaseError('purgeFacts', extractionError);
+
     return factIds.length;
   }
 

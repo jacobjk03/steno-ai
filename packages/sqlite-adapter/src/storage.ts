@@ -666,6 +666,10 @@ export class SQLiteStorageAdapter implements StorageAdapter {
       this.db
         .prepare('DELETE FROM facts WHERE tenant_id = ? AND scope = ? AND scope_id = ?')
         .run(tenantId, scope, scopeId);
+      // Delete extraction records so dedup cache doesn't serve stale results
+      this.db
+        .prepare('DELETE FROM extractions WHERE tenant_id = ? AND scope = ? AND scope_id = ?')
+        .run(tenantId, scope, scopeId);
     })();
 
     return factIds.length;
