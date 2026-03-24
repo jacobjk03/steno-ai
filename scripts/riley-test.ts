@@ -43,6 +43,7 @@ async function main() {
   const cache = new InMemoryCacheAdapter();
   const embedding = new CachedEmbeddingAdapter(rawEmbedding, cache, 7200);
   const cheapLLM = new OpenAILLMAdapter({ apiKey: OPENAI_API_KEY, model: 'gpt-4.1-nano' });
+  const rerankerLLM = new OpenAILLMAdapter({ apiKey: OPENAI_API_KEY, model: 'gpt-4.1-mini' });
 
   // Create tenant
   const tenantId = '00000000-0000-0000-0000-a00000000002';
@@ -51,7 +52,7 @@ async function main() {
   } catch {}
 
   // Load data
-  const data = JSON.parse(fs.readFileSync('/Users/sankiii/Downloads/riley_brooks_context.json', 'utf-8'));
+  const data = JSON.parse(fs.readFileSync('/Users/sankiii/Downloads/Misc/riley_brooks_context.json', 'utf-8'));
   const entries = data.dayEntries || [];
 
   // Ingest journal entries (batch by date, max 20 entries to save tokens)

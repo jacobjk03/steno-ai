@@ -63,6 +63,35 @@ export async function buildEntityIdMap(
  * Create edges between already-persisted entities.
  * Uses the entityIdMap built by buildEntityIdMap.
  */
+// Normalize relation names so "loves_deeply" and "loves" merge
+const RELATION_SYNONYMS: Record<string, string> = {
+  loves_deeply: 'loves',
+  has_relationship: 'partner_of',
+  has_relationship_with: 'partner_of',
+  dating: 'partner_of',
+  in_relationship_with: 'partner_of',
+  romantic_partner: 'partner_of',
+  girlfriend_of: 'partner_of',
+  boyfriend_of: 'partner_of',
+  married_to: 'partner_of',
+  works_for: 'works_at',
+  employed_at: 'works_at',
+  employed_by: 'works_at',
+  resides_in: 'lives_in',
+  located_at: 'located_in',
+  friends_with: 'friend_of',
+  acquainted_with: 'knows',
+  knows_about: 'knows',
+  interested_in: 'prefers',
+  attracted_to: 'prefers',
+  likes: 'prefers',
+};
+
+function normalizeRelation(relation: string): string {
+  const lower = relation.toLowerCase().trim();
+  return RELATION_SYNONYMS[lower] ?? lower;
+}
+
 export async function persistEdges(
   storage: StorageAdapter,
   tenantId: string,
@@ -70,26 +99,48 @@ export async function persistEdges(
   edges: ExtractedEdge[],
   entityIdMap: Map<string, string>,
 ): Promise<number> {
-  let edgesCreated = 0;
+  // Deduplicate edges by (source, target, normalized_relation) within this batch
+  const seen = new Set<string>();
+  const dedupedEdges: ExtractedEdge[] = [];
   for (const edge of edges) {
+    const normalizedRelation = normalizeRelation(edge.relation);
+    const key = `${edge.sourceName}|${normalizedRelation}|${edge.targetName}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      dedupedEdges.push({ ...edge, relation: normalizedRelation });
+    }
+  }
+
+  let edgesCreated = 0;
+  for (const edge of dedupedEdges) {
     const sourceId = entityIdMap.get(edge.sourceName);
     const targetId = entityIdMap.get(edge.targetName);
     if (sourceId && targetId) {
-      await storage.createEdge({
-        tenantId,
-        sourceId,
-        targetId,
-        relation: edge.relation,
-        edgeType: edge.edgeType,
-        confidence: edge.confidence,
-        weight: 1.0,
-        metadata: {},
-        factId,
-        id: crypto.randomUUID(),
-      });
-      edgesCreated++;
+      try {
+        await storage.createEdge({
+          tenantId,
+          sourceId,
+          targetId,
+          relation: edge.relation,
+          edgeType: edge.edgeType,
+          confidence: edge.confidence,
+          weight: 1.0,
+          metadata: {},
+          factId,
+          id: crypto.randomUUID(),
+        });
+        edgesCreated++;
+      } catch {
+        // Edge creation failed (e.g., duplicate) — continue
+      }
     }
-    // If source or target entity not found, silently skip the edge
+    if (!sourceId || !targetId) {
+      console.warn(
+        `[steno] Edge dropped: "${edge.sourceName}" → "${edge.relation}" → "${edge.targetName}" ` +
+        `(source=${sourceId ? 'found' : 'MISSING'}, target=${targetId ? 'found' : 'MISSING'}) ` +
+        `entityMap keys: [${[...entityIdMap.keys()].join(', ')}]`
+      );
+    }
   }
   return edgesCreated;
 }

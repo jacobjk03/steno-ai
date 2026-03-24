@@ -18,9 +18,17 @@ export async function compoundSearchSignal(
 ): Promise<{ vectorCandidates: Candidate[]; keywordCandidates: Candidate[] }> {
   const queryEmbedding = await embedding.embed(query);
 
+  // Extract key content words for keyword search (strip question words and stop words)
+  const stopWords = new Set(['what', 'when', 'where', 'who', 'why', 'how', 'which', 'is', 'are', 'was', 'were', 'did', 'does', 'do', 'the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'and', 'or', 'but', 'not', 'if', 'would', 'could', 'should', 'still', 'have', 'has', 'had', 'been', 'be', 'will', 'can', 'that', 'this', 'it', 'its', 'her', 'his', 'she', 'he', 'they', 'them', 'their', 'my', 'your', 'our']);
+  const keywordQuery = query.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length >= 3 && !stopWords.has(w))
+    .join(' ');
+
   const results = await storage.compoundSearch({
     embedding: queryEmbedding,
-    query,
+    query: keywordQuery || query,
     tenantId,
     scope,
     scopeId,

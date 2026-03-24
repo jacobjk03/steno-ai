@@ -43,7 +43,7 @@ export function tokenizeQuery(query: string): string[] {
  */
 export async function graphSearch(
   storage: StorageAdapter,
-  _embedding: EmbeddingAdapter,
+  embedding: EmbeddingAdapter,
   query: string,
   tenantId: string,
   _scope: string,
@@ -54,34 +54,43 @@ export async function graphSearch(
   const maxDepth = Math.min(config?.maxDepth ?? DEFAULT_MAX_DEPTH, MAX_ALLOWED_DEPTH);
   const maxEntities = Math.min(config?.maxEntities ?? DEFAULT_MAX_ENTITIES, 500);
 
-  // 1. Tokenize query, find matching entities
   const tokens = tokenizeQuery(query);
   if (tokens.length === 0) return [];
 
   const seedEntityIds: string[] = [];
 
-  // Always include "User" entity as a seed — most queries are about the user
-  const userEntity = await storage.findEntityByCanonicalName(tenantId, 'user', 'person');
-  if (userEntity) {
-    seedEntityIds.push(userEntity.id);
-  }
-
-  // Try exact token matching against entity canonical names
+  // Build all candidate names to search for (tokens + multi-word combos)
+  const candidateNames = ['user']; // Always include User
   for (const token of tokens) {
-    for (const entityType of ENTITY_TYPES) {
-      const entity = await storage.findEntityByCanonicalName(tenantId, token, entityType);
-      if (entity && !seedEntityIds.includes(entity.id)) {
-        seedEntityIds.push(entity.id);
-      }
+    if (token.length >= 3) candidateNames.push(token);
+  }
+  if (tokens.length >= 2) {
+    for (let i = 0; i < tokens.length - 1; i++) {
+      candidateNames.push(`${tokens[i]} ${tokens[i + 1]}`);
     }
   }
 
-  // Also try multi-word combinations (e.g., "brightwell capital" from tokens ["brightwell", "capital"])
-  if (tokens.length >= 2) {
-    for (let i = 0; i < tokens.length - 1; i++) {
-      const twoWord = `${tokens[i]} ${tokens[i + 1]}`;
+  // ONE query to find all matching entities instead of 78 sequential calls
+  try {
+    const { data } = await (storage as any).client
+      .from('entities')
+      .select('id, canonical_name')
+      .eq('tenant_id', tenantId)
+      .in('canonical_name', candidateNames);
+    if (data) {
+      for (const row of data as Array<{ id: string; canonical_name: string }>) {
+        if (!seedEntityIds.includes(row.id)) {
+          seedEntityIds.push(row.id);
+        }
+      }
+    }
+  } catch {
+    // Fallback: sequential lookups if batch fails
+    const userEntity = await storage.findEntityByCanonicalName(tenantId, 'user', 'person');
+    if (userEntity) seedEntityIds.push(userEntity.id);
+    for (const token of tokens) {
       for (const entityType of ENTITY_TYPES) {
-        const entity = await storage.findEntityByCanonicalName(tenantId, twoWord, entityType);
+        const entity = await storage.findEntityByCanonicalName(tenantId, token, entityType);
         if (entity && !seedEntityIds.includes(entity.id)) {
           seedEntityIds.push(entity.id);
         }
@@ -143,34 +152,56 @@ export async function graphSearch(
     }
   }
 
-  // 3. For each discovered entity, get facts via getFactsForEntity
+  // 3. Get facts for ALL discovered entities in ONE query via fact_entities join
+  //    This replaces N sequential getFactsForEntity calls with 1 batch query.
   const candidateMap = new Map<string, Candidate>();
+  const entityIds = traversalResult.entities.map(e => e.id);
 
-  for (const entity of traversalResult.entities) {
-    const hopDepth = entityHopMap.get(entity.id) ?? maxDepth;
-    const graphScore = 1 / Math.pow(2, hopDepth);
+  if (entityIds.length > 0) {
+    const PER_ENTITY_LIMIT = Math.max(3, Math.ceil(limit / Math.max(entityIds.length, 1)));
 
-    const factsResult = await storage.getFactsForEntity(tenantId, entity.id, {
-      limit: limit,
-    });
+    // Single query: get all facts linked to any of these entities
+    try {
+      const batchResult = await storage.getFactsForEntities(
+        tenantId, entityIds, PER_ENTITY_LIMIT
+      );
 
-    for (const fact of factsResult.data) {
-      const existing = candidateMap.get(fact.id);
-      if (existing) {
-        // Keep the higher graph score (shorter path)
-        if (graphScore > existing.graphScore) {
-          existing.graphScore = graphScore;
+      for (const { entityId, fact } of batchResult) {
+        const hopDepth = entityHopMap.get(entityId) ?? maxDepth;
+        const graphScore = 1 / Math.pow(2, hopDepth);
+        const existing = candidateMap.get(fact.id);
+        if (existing) {
+          if (graphScore > existing.graphScore) {
+            existing.graphScore = graphScore;
+          }
+        } else {
+          candidateMap.set(fact.id, {
+            fact,
+            vectorScore: 0,
+            keywordScore: 0,
+            graphScore,
+            recencyScore: 0,
+            salienceScore: 0,
+            source: 'graph' as const,
+          });
         }
-      } else {
-        candidateMap.set(fact.id, {
-          fact,
-          vectorScore: 0,
-          keywordScore: 0,
-          graphScore,
-          recencyScore: 0,
-          salienceScore: 0,
-          source: 'graph' as const,
-        });
+      }
+    } catch {
+      // Fallback to sequential if batch not supported
+      for (const entity of traversalResult.entities) {
+        const hopDepth = entityHopMap.get(entity.id) ?? maxDepth;
+        const graphScore = 1 / Math.pow(2, hopDepth);
+        try {
+          const factsResult = await storage.getFactsForEntity(tenantId, entity.id, { limit: 3 });
+          for (const fact of factsResult.data) {
+            if (!candidateMap.has(fact.id)) {
+              candidateMap.set(fact.id, {
+                fact, vectorScore: 0, keywordScore: 0, graphScore,
+                recencyScore: 0, salienceScore: 0, source: 'graph' as const,
+              });
+            }
+          }
+        } catch { /* skip entity */ }
       }
     }
   }

@@ -17,7 +17,7 @@ export async function deduplicateFacts(
   scope: string,
   scopeId: string,
 ): Promise<ExtractedFact[]> {
-  const threshold = config.similarityThreshold ?? 0.85;
+  const threshold = config.similarityThreshold ?? 0.70;
   const result: ExtractedFact[] = [];
 
   for (const fact of facts) {

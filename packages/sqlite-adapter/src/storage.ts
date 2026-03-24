@@ -894,6 +894,40 @@ export class SQLiteStorageAdapter implements StorageAdapter {
     return rowToEntity(row);
   }
 
+  async findEntitiesByEmbedding(
+    tenantId: string,
+    queryEmbedding: number[],
+    limit: number,
+    minSimilarity: number = 0.3,
+  ): Promise<Array<{ entity: Entity; similarity: number }>> {
+    // Pure-JS cosine similarity — load all entities with embeddings for this tenant
+    const rows = this.db
+      .prepare('SELECT * FROM entities WHERE tenant_id = ? AND embedding IS NOT NULL')
+      .all(tenantId) as Record<string, unknown>[];
+
+    const results: Array<{ entity: Entity; similarity: number }> = [];
+    for (const row of rows) {
+      const embStr = row['embedding'] as string | null;
+      if (!embStr) continue;
+      const emb = JSON.parse(embStr) as number[];
+      const sim = cosineSimilarity(new Float32Array(queryEmbedding), new Float32Array(emb));
+      if (sim >= minSimilarity) {
+        results.push({ entity: rowToEntity(row), similarity: sim });
+      }
+    }
+
+    results.sort((a, b) => b.similarity - a.similarity);
+    return results.slice(0, limit);
+  }
+
+  async getFactsForEntities(
+    _tenantId: string,
+    _entityIds: string[],
+    _perEntityLimit: number,
+  ): Promise<Array<{ entityId: string; fact: any }>> {
+    return []; // Fallback to sequential in graph-traversal.ts
+  }
+
   async getEntitiesForTenant(
     tenantId: string,
     options: PaginationOptions,

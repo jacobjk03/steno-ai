@@ -118,12 +118,14 @@ export interface StorageAdapter {
   createEntity(entity: CreateEntity & { id: string; embedding?: number[]; embeddingModel?: string; embeddingDim?: number }): Promise<Entity>;
   getEntity(tenantId: string, id: string): Promise<Entity | null>;
   findEntityByCanonicalName(tenantId: string, canonicalName: string, entityType: string): Promise<Entity | null>;
+  findEntitiesByEmbedding(tenantId: string, embedding: number[], limit: number, minSimilarity?: number): Promise<Array<{ entity: Entity; similarity: number }>>;
   getEntitiesForTenant(tenantId: string, options: PaginationOptions): Promise<PaginatedResult<Entity>>;
 
   // Fact-Entity junction
   linkFactEntity(factId: string, entityId: string, role: string): Promise<void>;
   getEntitiesForFact(factId: string): Promise<Entity[]>;
   getFactsForEntity(tenantId: string, entityId: string, options: PaginationOptions): Promise<PaginatedResult<Fact>>;
+  getFactsForEntities(tenantId: string, entityIds: string[], perEntityLimit: number): Promise<Array<{ entityId: string; fact: Fact }>>;
 
   // Edges
   createEdge(edge: CreateEdge & { id: string }): Promise<Edge>;

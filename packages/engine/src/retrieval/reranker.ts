@@ -1,70 +1,56 @@
-import type { LLMAdapter } from '../adapters/llm.js';
+import type { EmbeddingAdapter } from '../adapters/embedding.js';
 import type { SearchResult } from './types.js';
 
 /**
- * Re-rank search results using an LLM.
- * The LLM reads all results and selects the most relevant ones for the query.
- * This catches cases where vector similarity misses semantic relevance.
+ * Re-rank search results using embedding cosine similarity.
+ * Deterministic, free (uses existing embedding model), no LLM call.
  *
- * Cost: ~$0.001 per call (one cheap LLM call with ~2K tokens)
+ * How it works:
+ * 1. Embed the query
+ * 2. Embed all fact content texts in a single batch call
+ * 3. Compute cosine similarity between query embedding and each fact embedding
+ * 4. Blend the similarity score with the original fusion score
+ * 5. Re-sort by blended score
  */
 export async function rerank(
-  llm: LLMAdapter,
+  embedding: EmbeddingAdapter,
   query: string,
   results: SearchResult[],
   topK: number = 10,
 ): Promise<SearchResult[]> {
   if (results.length === 0) return [];
-  if (results.length <= 1) return results; // Only skip if 0 or 1 results
+  if (results.length <= 1) return results;
 
-  // Build context: numbered list of result contents
-  const numbered = results.map((r, i) => `[${i}] ${r.fact.content}`).join('\n');
+  // Embed query + all fact texts in one batch
+  const texts = [query, ...results.map(r => r.fact.content)];
+  const embeddings = await embedding.embedBatch(texts);
+  const queryEmbedding = embeddings[0]!;
+  const factEmbeddings = embeddings.slice(1);
 
-  try {
-    const response = await llm.complete([
-      {
-        role: 'system',
-        content: `You are a relevance ranker. Given a query and a numbered list of memory facts, return the indices of the ${topK} MOST RELEVANT facts for answering the query, ordered by relevance (most relevant first).
+  // Score each result by cosine similarity with the query
+  const RERANK_WEIGHT = 0.4; // 40% embedding similarity, 60% original fusion score
+  const scored = results.map((r, i) => {
+    const rerankScore = cosineSimilarity(queryEmbedding, factEmbeddings[i]!);
+    const blendedScore = r.score * (1 - RERANK_WEIGHT) + rerankScore * RERANK_WEIGHT;
+    return { ...r, score: blendedScore };
+  });
 
-Rules:
-- Consider semantic relevance, not just keyword matching
-- A fact about "User loves Casey" IS relevant to "who is the partner" because loving someone implies partnership
-- A fact about "User works at Google" IS relevant to "where does User work" even if phrased differently
-- Include facts that provide indirect evidence or context
-- Return ONLY a JSON array of indices, e.g. [3, 0, 7, 1, 5]`
-      },
-      {
-        role: 'user',
-        content: `Query: ${query}\n\nFacts:\n${numbered}`
-      }
-    ], { temperature: 0, responseFormat: 'json' });
+  // Sort by blended score
+  scored.sort((a, b) => b.score - a.score);
 
-    // Parse the indices
-    const parsed = JSON.parse(response.content);
-    const indices: number[] = Array.isArray(parsed) ? parsed : (parsed.indices ?? parsed.results ?? []);
+  return scored.slice(0, topK);
+}
 
-    // Reorder results by LLM ranking
-    const reranked: SearchResult[] = [];
-    for (const idx of indices) {
-      if (typeof idx === 'number' && idx >= 0 && idx < results.length) {
-        const result = results[idx]!;
-        reranked.push({
-          ...result,
-          score: 1 - (reranked.length / indices.length), // Re-score: 1st = 1.0, last = 0.0
-        });
-      }
-    }
-
-    // Add any results the LLM missed (shouldn't happen but safety)
-    for (const r of results) {
-      if (!reranked.find(rr => rr.fact.id === r.fact.id)) {
-        reranked.push({ ...r, score: 0 });
-      }
-    }
-
-    return reranked.slice(0, topK);
-  } catch {
-    // If re-ranking fails, return original order
-    return results.slice(0, topK);
+function cosineSimilarity(a: number[], b: number[]): number {
+  if (a.length !== b.length || a.length === 0) return 0;
+  let dotProduct = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dotProduct += a[i]! * b[i]!;
+    normA += a[i]! * a[i]!;
+    normB += b[i]! * b[i]!;
   }
+  const denom = Math.sqrt(normA) * Math.sqrt(normB);
+  return denom === 0 ? 0 : dotProduct / denom;
 }

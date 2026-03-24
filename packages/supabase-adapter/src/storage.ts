@@ -443,6 +443,25 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     return toCamelCase(data as Record<string, unknown>) as unknown as Entity;
   }
 
+  async findEntitiesByEmbedding(
+    tenantId: string,
+    embedding: number[],
+    limit: number,
+    minSimilarity: number = 0.3,
+  ): Promise<Array<{ entity: Entity; similarity: number }>> {
+    const { data, error } = await this.client.rpc('match_entities', {
+      query_embedding: JSON.stringify(embedding),
+      match_tenant_id: tenantId,
+      match_count: limit,
+      min_similarity: minSimilarity,
+    });
+    if (error) throwSupabaseError('findEntitiesByEmbedding', error);
+    return (data ?? []).map((row: Record<string, unknown>) => ({
+      entity: toCamelCase(row) as unknown as Entity,
+      similarity: row['similarity'] as number,
+    }));
+  }
+
   // ---------------------------------------------------------------------------
   // Fact-Entity junction
   // ---------------------------------------------------------------------------
@@ -761,47 +780,66 @@ export class SupabaseStorageAdapter implements StorageAdapter {
   ): Promise<PaginatedResult<Fact>> {
     const { limit, cursor } = options;
 
-    // First, get fact IDs from the junction table
-    let junctionQuery = this.client
+    // Use a join via PostgREST's !inner syntax to avoid URL-length issues
+    // with large IN clauses (408 UUIDs = ~15KB URL, exceeds PostgREST limit)
+    let query = this.client
       .from('fact_entities')
-      .select('fact_id')
-      .eq('entity_id', entityId);
-
-    const { data: junctionData, error: junctionError } = await junctionQuery;
-    if (junctionError) throwSupabaseError('getFactsForEntity', junctionError);
-
-    const factIds = (junctionData ?? []).map((row) => (row as Record<string, unknown>)['fact_id'] as string);
-    if (factIds.length === 0) {
-      return { data: [], cursor: null, hasMore: false };
-    }
-
-    // Then fetch the actual facts
-    let factsQuery = this.client
-      .from('facts')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .in('id', factIds)
-      .order('created_at', { ascending: false })
+      .select('fact_id, facts!inner(*)')
+      .eq('entity_id', entityId)
+      .eq('facts.tenant_id', tenantId)
+      .order('created_at', { ascending: false, referencedTable: 'facts' })
       .limit(limit + 1);
 
     if (cursor) {
-      factsQuery = factsQuery.lt('created_at', cursor);
+      query = query.lt('facts.created_at', cursor);
     }
 
-    const { data, error } = await factsQuery;
+    const { data, error } = await query;
     if (error) throwSupabaseError('getFactsForEntity', error);
 
     const rows = data ?? [];
     const hasMore = rows.length > limit;
     const page = hasMore ? rows.slice(0, limit) : rows;
     const facts = page.map(
-      (row) => toCamelCase(row as Record<string, unknown>) as unknown as Fact,
+      (row) => {
+        // Join returns { fact_id, facts: { ...fact_columns } }
+        const factRow = (row as Record<string, unknown>)['facts'] as Record<string, unknown>;
+        return toCamelCase(factRow) as unknown as Fact;
+      },
     );
     const nextCursor = hasMore && page.length > 0
-      ? (page[page.length - 1] as Record<string, unknown>)['created_at'] as string
+      ? ((page[page.length - 1] as Record<string, unknown>)['facts'] as Record<string, unknown>)['created_at'] as string
       : null;
 
     return { data: facts, cursor: nextCursor, hasMore };
+  }
+
+  async getFactsForEntities(
+    tenantId: string,
+    entityIds: string[],
+    perEntityLimit: number,
+  ): Promise<Array<{ entityId: string; fact: Fact }>> {
+    if (entityIds.length === 0) return [];
+
+    const { data, error } = await this.client.rpc('get_facts_for_entities', {
+      match_tenant_id: tenantId,
+      entity_ids: entityIds,
+      per_entity_limit: perEntityLimit,
+    });
+    if (error) throwSupabaseError('getFactsForEntities', error);
+
+    return (data ?? []).map((row: Record<string, unknown>) => {
+      const entityId = row['entity_id'] as string;
+      // Build fact from the row (all fact columns are returned)
+      const factRow = { ...row };
+      delete factRow['entity_id'];
+      factRow['id'] = factRow['fact_id'];
+      delete factRow['fact_id'];
+      return {
+        entityId,
+        fact: toCamelCase(factRow as Record<string, unknown>) as unknown as Fact,
+      };
+    });
   }
 
   async getEdgesForEntity(tenantId: string, entityId: string): Promise<Edge[]> {

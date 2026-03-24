@@ -1,132 +1,137 @@
 import type { LLMAdapter } from '../adapters/llm.js';
 import type { ExtractionResult, ExtractedFact, ExtractedEntity, ExtractedEdge } from './types.js';
 import type { ExtractionTier, EdgeType } from '../config.js';
-import { buildExtractionPrompt } from './prompts.js';
+import { buildFactExtractionPrompt, buildGraphExtractionPrompt, buildExtractionPrompt } from './prompts.js';
 
 export interface LLMExtractorConfig {
   llm: LLMAdapter;
-  tier: ExtractionTier; // 'cheap_llm' or 'smart_llm'
+  tier: ExtractionTier;
 }
 
+/**
+ * Two-pass extraction like Mem0:
+ * Pass 1: Extract facts as simple strings (focused, high quality)
+ * Pass 2: Extract entities + edges from the facts (separate concern)
+ */
 export async function extractWithLLM(
   config: LLMExtractorConfig,
   input: string,
   existingFacts?: Array<{ lineageId: string; content: string }>,
 ): Promise<ExtractionResult> {
-  // 1. Build prompt — map camelCase lineageId to snake_case lineage_id for buildExtractionPrompt
-  const mappedFacts = existingFacts?.map((f) => ({ lineage_id: f.lineageId, content: f.content }));
-  const messages = buildExtractionPrompt(input, mappedFacts);
+  let totalTokensIn = 0;
+  let totalTokensOut = 0;
 
-  // 2. Call LLM (catch API errors and return empty result)
-  let response;
+  // ── PASS 1: Fact extraction ──
+  const factMessages = buildFactExtractionPrompt(input);
+
+  // If existing facts provided, append them for dedup context
+  if (existingFacts && existingFacts.length > 0) {
+    const factsBlock = existingFacts
+      .map(f => `- [lineage: ${f.lineageId}] ${f.content}`)
+      .join('\n');
+    factMessages[1]!.content += `\n\n--- EXISTING FACTS (skip duplicates, mark updates) ---\n${factsBlock}`;
+  }
+
+  let factStrings: string[] = [];
   try {
-    response = await config.llm.complete(messages, { temperature: 0, responseFormat: 'json' });
+    const factResponse = await config.llm.complete(factMessages, { temperature: 0, responseFormat: 'json' });
+    totalTokensIn += factResponse.tokensInput;
+    totalTokensOut += factResponse.tokensOutput;
+
+    const parsed = JSON.parse(factResponse.content) as Record<string, unknown>;
+    const rawFacts = Array.isArray(parsed.facts) ? parsed.facts : [];
+    factStrings = rawFacts
+      .filter((f): f is string => typeof f === 'string')
+      .map(f => f.trim())
+      .filter(f => f.length > 0);
   } catch {
     return emptyResult(config.tier, config.llm.model);
   }
 
-  // 3. Parse JSON — retry once on failure
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = JSON.parse(response.content) as Record<string, unknown>;
-  } catch {
-    // Retry once with slightly higher temperature so output differs
-    try {
-      response = await config.llm.complete(messages, { temperature: 0.1, responseFormat: 'json' });
-      parsed = JSON.parse(response.content) as Record<string, unknown>;
-    } catch {
-      return emptyResult(config.tier, config.llm.model);
-    }
+  if (factStrings.length === 0) {
+    return emptyResult(config.tier, config.llm.model);
   }
 
-  // 4. Extract facts, entities, edges from parsed JSON
-  const rawFacts = Array.isArray(parsed.facts) ? (parsed.facts as unknown[]) : [];
-  const confidence = typeof parsed.confidence === 'number' ? parsed.confidence : 0.7;
+  // Build ExtractedFact objects from strings
+  const facts: ExtractedFact[] = factStrings.map(content => ({
+    content,
+    importance: 0.5,
+    confidence: 0.8,
+    sourceType: 'conversation' as const,
+    modality: 'text' as const,
+    tags: [],
+    originalContent: input,
+    entityCanonicalNames: [],
+  }));
 
-  const facts: ExtractedFact[] = [];
-  const entities: ExtractedEntity[] = [];
-  const edges: ExtractedEdge[] = [];
-  const seenEntities = new Set<string>();
+  // ── PASS 2: Graph extraction (entities + edges) from the facts ──
+  let entities: ExtractedEntity[] = [];
+  let edges: ExtractedEdge[] = [];
 
-  for (const f of rawFacts) {
-    if (!f || typeof (f as Record<string, unknown>).content !== 'string') continue;
-    const fact = f as Record<string, unknown>;
-    const content = (fact.content as string).trim();
-    if (content === '') continue;
+  try {
+    const graphMessages = buildGraphExtractionPrompt(factStrings);
+    const graphResponse = await config.llm.complete(graphMessages, { temperature: 0, responseFormat: 'json' });
+    totalTokensIn += graphResponse.tokensInput;
+    totalTokensOut += graphResponse.tokensOutput;
 
-    facts.push({
-      content,
-      importance: clamp(Number(fact.importance ?? 0.5), 0, 1),
-      confidence: clamp(confidence, 0, 1),
-      sourceType: 'conversation',
-      modality: 'text',
-      tags: Array.isArray(fact.tags) ? (fact.tags as unknown[]).filter((t): t is string => typeof t === 'string') : [],
-      originalContent: input,
-      operation: isValidOperation(fact.operation) ? (fact.operation as string).toLowerCase() as 'add' | 'update' | 'invalidate' | 'noop' | 'contradict' : undefined,
-      existingLineageId:
-        typeof fact.existing_lineage_id === 'string' ? fact.existing_lineage_id : undefined,
-      contradictsFactId:
-        typeof fact.contradicts_fact_id === 'string' ? fact.contradicts_fact_id : undefined,
-      entityCanonicalNames: [] as string[], // populated below
-    });
+    const graphParsed = JSON.parse(graphResponse.content) as Record<string, unknown>;
 
-    const currentFact = facts[facts.length - 1]!;
-
-    // Extract entities from this fact
-    if (Array.isArray(fact.entities)) {
-      for (const e of fact.entities as unknown[]) {
+    // Parse entities
+    const seenEntities = new Set<string>();
+    if (Array.isArray(graphParsed.entities)) {
+      for (const e of graphParsed.entities as unknown[]) {
         if (!e || typeof (e as Record<string, unknown>).name !== 'string') continue;
         const entity = e as Record<string, unknown>;
-        const canonical = (entity.name as string).toLowerCase().trim();
-        if (!seenEntities.has(canonical)) {
-          seenEntities.add(canonical);
-          entities.push({
-            name: String(entity.name),
-            entityType: String(entity.type ?? 'concept'),
-            canonicalName: canonical,
-            properties: {},
-          });
-        }
-        currentFact.entityCanonicalNames!.push(canonical);
-      }
-    }
-
-    // Extract edges/relationships from this fact
-    if (Array.isArray(fact.relationships)) {
-      for (const r of fact.relationships as unknown[]) {
-        if (!r) continue;
-        const rel = r as Record<string, unknown>;
-        if (typeof rel.source !== 'string' || typeof rel.target !== 'string') continue;
-        edges.push({
-          sourceName: rel.source.toLowerCase().trim(),
-          targetName: rel.target.toLowerCase().trim(),
-          relation: String(rel.relation ?? 'related_to'),
-          edgeType: isValidEdgeType(rel.edge_type) ? rel.edge_type : 'associative',
-          confidence: clamp(confidence, 0, 1),
+        const canonical = normalizeEntityName(entity.name as string);
+        if (canonical.length === 0 || seenEntities.has(canonical)) continue;
+        seenEntities.add(canonical);
+        entities.push({
+          name: canonical.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+          entityType: String(entity.entity_type ?? entity.type ?? 'concept'),
+          canonicalName: canonical,
+          properties: {},
         });
       }
     }
-  }
 
-  // Also parse top-level edges array (the prompt schema puts edges at the top level)
-  if (Array.isArray(parsed.edges)) {
-    for (const r of parsed.edges as unknown[]) {
-      if (!r) continue;
-      const rel = r as Record<string, unknown>;
-      const source = typeof rel.source_name === 'string' ? rel.source_name :
-                     typeof rel.source === 'string' ? rel.source : null;
-      const target = typeof rel.target_name === 'string' ? rel.target_name :
-                     typeof rel.target === 'string' ? rel.target : null;
-      if (!source || !target) continue;
-
-      edges.push({
-        sourceName: source.toLowerCase().trim(),
-        targetName: target.toLowerCase().trim(),
-        relation: String(rel.relation ?? 'related_to'),
-        edgeType: isValidEdgeType(rel.edge_type) ? rel.edge_type : 'associative',
-        confidence: clamp(confidence, 0, 1),
-      });
+    // Parse edges
+    if (Array.isArray(graphParsed.edges)) {
+      for (const r of graphParsed.edges as unknown[]) {
+        if (!r) continue;
+        const rel = r as Record<string, unknown>;
+        const rawSource = typeof rel.source === 'string' ? rel.source :
+                         typeof rel.source_name === 'string' ? rel.source_name : null;
+        const rawTarget = typeof rel.target === 'string' ? rel.target :
+                         typeof rel.target_name === 'string' ? rel.target_name : null;
+        if (!rawSource || !rawTarget) continue;
+        const source = normalizeEntityName(rawSource);
+        const target = normalizeEntityName(rawTarget);
+        if (!source || !target) continue;
+        edges.push({
+          sourceName: source,
+          targetName: target,
+          relation: String(rel.relation ?? 'related_to'),
+          edgeType: isValidEdgeType(rel.edge_type) ? rel.edge_type : 'associative',
+          confidence: 0.8,
+        });
+      }
     }
+
+    // Link entities to facts by text match
+    for (const fact of facts) {
+      const contentLower = fact.content.toLowerCase();
+      for (const entity of entities) {
+        if (entity.canonicalName === 'user') {
+          if (contentLower.startsWith('user ') || contentLower.includes(' user ')) {
+            fact.entityCanonicalNames!.push(entity.canonicalName);
+          }
+        } else if (entity.canonicalName.length >= 3 && contentLower.includes(entity.canonicalName)) {
+          fact.entityCanonicalNames!.push(entity.canonicalName);
+        }
+      }
+    }
+  } catch {
+    // Graph pass failed — we still have facts, just no graph. That's OK.
   }
 
   return {
@@ -134,10 +139,10 @@ export async function extractWithLLM(
     entities,
     edges,
     tier: config.tier,
-    confidence,
-    tokensInput: response.tokensInput,
-    tokensOutput: response.tokensOutput,
-    model: response.model,
+    confidence: 0.8,
+    tokensInput: totalTokensIn,
+    tokensOutput: totalTokensOut,
+    model: config.llm.model,
   };
 }
 
@@ -154,22 +159,27 @@ function emptyResult(tier: ExtractionTier, model: string): ExtractionResult {
   };
 }
 
-function clamp(n: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, n));
-}
-
-function isValidOperation(
-  op: unknown,
-): op is 'add' | 'update' | 'invalidate' | 'noop' | 'contradict' {
-  return (
-    typeof op === 'string' &&
-    ['add', 'update', 'invalidate', 'noop', 'contradict'].includes(op.toLowerCase())
-  );
-}
-
 function isValidEdgeType(t: unknown): t is EdgeType {
   return (
     typeof t === 'string' &&
     ['associative', 'causal', 'temporal', 'contradictory', 'hierarchical'].includes(t)
   );
+}
+
+/**
+ * Normalize an entity name to a clean canonical form.
+ */
+export function normalizeEntityName(raw: string): string {
+  let name = raw.trim();
+  name = name.replace(/^[-–—*•#>]+\s*/g, '');
+  name = name.replace(/'s$/i, '');
+  name = name.replace(/\u2019s$/i, '');
+  name = name.replace(/^[^a-zA-Z0-9]+/, '');
+  name = name.replace(/[^a-zA-Z0-9]+$/, '');
+  const leadingNoise = /^(the|a|an|when|where|how|what|why|who|is|are|was|were|has|have|had|my|our|their|his|her|its|this|that|these|those)\s+/i;
+  name = name.replace(leadingNoise, '');
+  name = name.replace(leadingNoise, '');
+  name = name.replace(/\s+/g, ' ').trim();
+  name = name.toLowerCase();
+  return name;
 }

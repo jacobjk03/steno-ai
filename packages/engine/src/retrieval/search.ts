@@ -23,7 +23,8 @@ export interface SearchConfig {
   salienceNormalizationK?: number;
   graphMaxDepth?: number;
   graphMaxEntities?: number;
-  rerankerLLM?: LLMAdapter; // Optional — if provided, re-ranks results with LLM
+  rerankerLLM?: LLMAdapter; // Deprecated — use embedding-based reranking instead
+  rerank?: boolean; // If true, re-ranks results using embedding similarity (deterministic, free)
 }
 
 export async function search(
@@ -42,11 +43,13 @@ export async function search(
 
   // 1. Run signals in PARALLEL using Promise.allSettled (graceful degradation)
   //    Compound search replaces separate vector + keyword calls (2 DB calls → 1)
+  const t0 = Date.now();
   const [compoundSettled, graphSettled, triggerSettled] = await Promise.allSettled([
     compoundSearchSignal(config.storage, effectiveEmbedding, options.query, options.tenantId, options.scope, options.scopeId, limit * fetchMultiplier),
     graphSearch(config.storage, effectiveEmbedding, options.query, options.tenantId, options.scope, options.scopeId, limit * fetchMultiplier, { maxDepth: config.graphMaxDepth, maxEntities: config.graphMaxEntities, asOf: options.temporalFilter?.asOf }),
     matchTriggers(config.storage, effectiveEmbedding, options.query, options.tenantId, options.scope, options.scopeId),
   ]);
+  console.log(`[steno-search] Signals: ${Date.now() - t0}ms (compound=${compoundSettled.status}, graph=${graphSettled.status}, trigger=${triggerSettled.status})`);
 
   // Extract results, using empty arrays for failed signals (graceful degradation)
   const compoundResult = compoundSettled.status === 'fulfilled' ? compoundSettled.value : { vectorCandidates: [], keywordCandidates: [] };
@@ -85,10 +88,12 @@ export async function search(
   // 5. Enrich with contradiction context
   let results = await surfaceContradictions(config.storage, options.tenantId, fusionResults);
 
-  // 5b. Optional: LLM re-ranking for better relevance
-  if (config.rerankerLLM && results.length > 0) {
-    results = await rerank(config.rerankerLLM, options.query, results, limit);
+  // 5b. Embedding-based re-ranking (deterministic, ~300ms via batch embed).
+  const t1 = Date.now();
+  if (results.length > 1) {
+    results = await rerank(effectiveEmbedding, options.query, results, limit);
   }
+  console.log(`[steno-search] Rerank: ${Date.now() - t1}ms, Total so far: ${Date.now() - startTime}ms`);
 
   // 6. Optionally enrich with graph context
   if (options.includeGraph) {

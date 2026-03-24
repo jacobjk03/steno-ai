@@ -1,159 +1,176 @@
 import type { LLMMessage } from '../adapters/llm.js';
 
-export const EXTRACTION_SYSTEM_PROMPT = `You are a memory extraction engine. Your job is to analyze text and extract structured knowledge for a personal AI memory system.
+// =============================================================================
+// PASS 1: FACT EXTRACTION — Simple, focused, one job
+// =============================================================================
 
-ABSOLUTE RULES — VIOLATION MEANS FAILURE:
-1. NEVER fabricate, infer, or guess information that is NOT explicitly stated in the text.
-2. NEVER invent names, dates, numbers, or facts. If the text says "my partner" but doesn't name them, extract "User has a partner" — do NOT guess a name.
-3. Only extract information that is DIRECTLY and EXPLICITLY stated in the provided text.
-4. When in doubt, extract LESS rather than risk fabricating. A missing fact is better than a wrong fact.
-5. Use the EXACT names, terms, and phrases from the text. Do not paraphrase names or substitute similar terms.
+export const FACT_EXTRACTION_PROMPT = `You are a memory extraction engine. Extract facts from text for a personal AI memory system.
 
-## CRITICAL RULES
+## WHO IS "USER"?
 
-- Extract SPECIFIC details, not vague summaries.
-  BAD: "User had car issues"
-  GOOD: "User's GPS system was not functioning correctly after car's first service"
-- Preserve exact names, numbers, dates, places, and events mentioned
-- If the conversation mentions a specific date or time reference (e.g., "last Tuesday", "in February", "three days ago"), include it in the fact
-- Extract ALL factual statements, even seemingly minor ones — you cannot predict what will be asked later
-- For each fact, if a date/time is mentioned or can be inferred, add it to the content
+Messages labeled "user" are from THE PERSON whose memories we are storing.
+Messages labeled "assistant" or any other role are from OTHER people.
 
-## ATOMIC FACTS
+CRITICAL: Focus on facts FROM "user" messages, but ALSO extract notable facts about other people mentioned in the conversation. If the assistant/conversation partner shares personal information (e.g., "I painted a sunrise last year", "I realized self-care is important"), store it as "User's conversation partner [Name] painted a sunrise in [year]".
 
-Extract ATOMIC FACTS: each fact must contain exactly one piece of information. Do not bundle multiple facts together.
+For identity/trait facts, state them DIRECTLY:
+- "User is a transgender woman" (not just "User went to a transgender conference")
+- "User works at Brightwell Capital" (not just "User had a busy day at work")
+- "User is researching adoption agencies" (not just "User attended a meeting about adoption")
 
-Write all facts in third person, referring to the subject as "User" (e.g., "User prefers dark mode", "User's name is Alice").
+## RULES
 
-## IMPORTANCE SCORING
+1. Extract SELF-CONTAINED atomic facts. Each fact must be understandable on its own, without the original conversation.
 
-Assign an importance score (0.0–1.0) to each fact:
+2. Resolve ALL references:
+   - Pronouns → names: "she said" → "Casey said"
+   - Temporal → actual dates: "yesterday" → "on 7 May 2023"
+   - Places → full names: "there" → "at Brightwell Capital"
+   - If a date context is provided (e.g., "[This conversation took place on 8 May, 2023]"), resolve ALL temporal references relative to it.
 
-- 0.95–1.0: Health/safety-critical (allergies, medications, medical conditions, emergency contacts)
-- 0.8–0.9: Identity (name, role, company, location of residence)
-- 0.6–0.8: Strong preferences (dietary choices, strong opinions, frequently stated preferences)
-- 0.4–0.6: Mild preferences (casual likes/dislikes, soft preferences)
-- 0.2–0.4: Contextual/situational (temporary states, short-term plans, one-off mentions)
-- 0.1–0.2: Trivia (fun facts, minor details unlikely to affect decisions)
+3. Be SPECIFIC, not vague:
+   BAD: "User had issues at work"
+   GOOD: "User's team at Brightwell Capital rambles too much in meetings"
 
-## ENTITY EXTRACTION
+4. Extract ALL facts, even minor ones. You cannot predict what will be asked later.
 
-Extract named entities with the following types:
-- person
-- organization
-- technology
-- concept
-- location
-- event
+5. Write all facts in third person using "User" (e.g., "User prefers dark mode").
 
-For each entity, provide:
-- name: the name as it appears in the text
-- entity_type: one of the types above
-- canonical_name: lowercased, normalized form (e.g., "openai", "new york city")
-- properties: any relevant key/value attributes
+## OUTPUT
 
-## RELATIONSHIP EXTRACTION
+Return ONLY a JSON object:
+{"facts": ["fact 1", "fact 2", "fact 3"]}
 
-Extract relationships (edges) between entities. These are CRITICAL for building a knowledge graph.
+Nothing else. No explanation, no markdown.`;
 
-For EVERY pair of entities that have a connection, create an edge. Common relationships:
-- "works_at" (person → organization)
-- "lives_in" (person → location)
-- "shops_at" (person → organization)
-- "uses" (person → technology/product)
-- "knows" / "friend_of" (person → person)
-- "partner_of" / "married_to" (person → person)
-- "part_of" / "belongs_to" (entity → entity)
-- "located_in" (organization → location)
-- "prefers" (person → concept/product)
-- "allergic_to" (person → concept)
-- "caused_by" (event → event)
-- "happened_before" / "happened_after" (event → event)
-- "contradicts" (fact → fact)
-- "updates" / "supersedes" (fact → fact)
+// =============================================================================
+// PASS 2: GRAPH EXTRACTION — Entities + relationships from extracted facts
+// =============================================================================
 
-Use edge_type values:
-- associative: general connection (works_at, lives_in, shops_at, uses, knows)
-- causal: one causes another (caused_by)
-- temporal: time-related (happened_before, happened_after)
-- contradictory: conflicts (contradicts)
-- hierarchical: parent/child (part_of, belongs_to)
+export const GRAPH_EXTRACTION_PROMPT = `You are a knowledge graph builder. Given a list of facts about a person, extract entities and relationships.
 
-IMPORTANT: You MUST extract relationships. A memory system without relationships is just a list. If the text says "I shop at Target" → create edge: User → shops_at → Target.
+## ENTITIES
 
-## DEDUPLICATION (when existing facts are provided)
+Extract only IMPORTANT named entities — proper nouns and specific things worth remembering. Aim for 3-8 entities total, not 40.
 
-When EXISTING FACTS are provided, classify each new fact with an operation:
-- ADD: entirely new fact, no overlap with existing facts
-- UPDATE: replaces or refines an existing fact (provide existing_lineage_id)
-- INVALIDATE: existing fact is now false or irrelevant (provide existing_lineage_id)
-- NOOP: fact is already covered by an existing fact — skip it
-- CONTRADICT: new fact contradicts an existing fact but both may be retained (provide contradicts_fact_id)
+DO extract: People (Casey, Jamie), Organizations (Brightwell Capital), Places (Harbor Point), Products/Projects (LifePath, AirPods Max), Named activities (Catan, D&D)
+DO NOT extract: Generic nouns (team, boss, meeting, work, food, gym), abstract concepts (motivation, stress), common objects (pizza, chair, phone)
 
-## JSON OUTPUT SCHEMA
+## RELATIONSHIPS
 
-Return a JSON object with this exact structure:
+Extract relationships between entities. Be SMART — infer from context:
+- "User works at Google" → user works_at google
+- "User loves Casey, plans to propose" → user partner_of casey
+- "User's friend Jamie came over" → user friend_of jamie
 
+Use snake_case relation names: works_at, partner_of, friend_of, lives_in, uses, studies, prefers, etc.
+
+## OUTPUT
+
+Return ONLY a JSON object:
 {
-  "facts": [
-    {
-      "content": "User prefers dark mode in all applications",
-      "importance": 0.55,
-      "confidence": 0.92,
-      "tags": ["preferences", "ui"],
-      "operation": "ADD",
-      "existing_lineage_id": null,
-      "contradicts_fact_id": null
-    }
-  ],
   "entities": [
-    {
-      "name": "Alice",
-      "entity_type": "person",
-      "canonical_name": "alice",
-      "properties": {}
-    }
+    {"name": "Casey", "entity_type": "person"},
+    {"name": "Brightwell Capital", "entity_type": "organization"}
   ],
   "edges": [
-    {
-      "source_name": "user",
-      "target_name": "target",
-      "relation": "shops_at",
-      "edge_type": "associative",
-      "confidence": 0.9
-    },
-    {
-      "source_name": "user",
-      "target_name": "cartwheel app",
-      "relation": "uses",
-      "edge_type": "associative",
-      "confidence": 0.85
-    }
+    {"source": "user", "target": "casey", "relation": "partner_of"},
+    {"source": "user", "target": "brightwell capital", "relation": "works_at"}
   ]
 }
 
-Return ONLY valid JSON. No explanation, no markdown, no code blocks.`;
+entity_type must be one of: person, organization, location, technology, concept, event.
+Entity names must be clean: no punctuation, no articles, no sentence fragments.
+Return ONLY valid JSON.`;
+
+// =============================================================================
+// DEDUP PROMPT — Classify new facts against existing ones
+// =============================================================================
+
+export const DEDUP_PROMPT = `You are a memory deduplication engine. Given NEW facts and EXISTING facts in a memory store, classify each new fact.
+
+For each new fact, decide:
+- ADD: entirely new information, not covered by existing facts
+- UPDATE: replaces or refines an existing fact (provide the index of the existing fact)
+- NOOP: already covered by an existing fact — skip it
+- CONTRADICT: conflicts with an existing fact (provide the index)
+
+Return a JSON array:
+[
+  {"fact": "...", "operation": "ADD"},
+  {"fact": "...", "operation": "UPDATE", "existing_index": 3},
+  {"fact": "...", "operation": "NOOP"},
+  {"fact": "...", "operation": "CONTRADICT", "existing_index": 7}
+]
+
+Be conservative: prefer NOOP over ADD if the information is substantially similar.`;
+
+// =============================================================================
+// PROMPT BUILDERS
+// =============================================================================
 
 export interface ExistingFact {
   lineage_id: string;
   content: string;
 }
 
+/**
+ * Build the fact extraction prompt (Pass 1).
+ * Simple: extract facts as strings.
+ */
+export function buildFactExtractionPrompt(input: string): LLMMessage[] {
+  return [
+    { role: 'system', content: FACT_EXTRACTION_PROMPT },
+    { role: 'user', content: `Extract facts from this text:\n\n${input}` },
+  ];
+}
+
+/**
+ * Build the graph extraction prompt (Pass 2).
+ * Takes extracted facts and produces entities + edges.
+ */
+export function buildGraphExtractionPrompt(facts: string[]): LLMMessage[] {
+  const factsList = facts.map((f, i) => `${i + 1}. ${f}`).join('\n');
+  return [
+    { role: 'system', content: GRAPH_EXTRACTION_PROMPT },
+    { role: 'user', content: `Extract entities and relationships from these facts:\n\n${factsList}` },
+  ];
+}
+
+/**
+ * Build the dedup prompt.
+ * Compares new facts against existing facts.
+ */
+export function buildDedupPrompt(newFacts: string[], existingFacts: ExistingFact[]): LLMMessage[] {
+  const newList = newFacts.map((f, i) => `NEW[${i}]: ${f}`).join('\n');
+  const existingList = existingFacts.map((f, i) => `EXISTING[${i}] (lineage: ${f.lineage_id}): ${f.content}`).join('\n');
+  return [
+    { role: 'system', content: DEDUP_PROMPT },
+    { role: 'user', content: `--- NEW FACTS ---\n${newList}\n\n--- EXISTING FACTS ---\n${existingList}` },
+  ];
+}
+
+// =============================================================================
+// LEGACY — Keep old function signature for backward compat during migration
+// =============================================================================
+
+export const EXTRACTION_SYSTEM_PROMPT = FACT_EXTRACTION_PROMPT;
+
 export function buildExtractionPrompt(
   input: string,
   existingFacts?: ExistingFact[],
 ): LLMMessage[] {
+  // Legacy: still used by the current pipeline
+  // Will be replaced by buildFactExtractionPrompt + buildGraphExtractionPrompt
   let userContent = `Extract facts from this text:\n\n${input}`;
-
   if (existingFacts && existingFacts.length > 0) {
     const factsBlock = existingFacts
       .map((f) => `- [lineage_id: ${f.lineage_id}] ${f.content}`)
       .join('\n');
     userContent += `\n\n--- EXISTING FACTS (for deduplication) ---\n${factsBlock}`;
   }
-
   return [
-    { role: 'system', content: EXTRACTION_SYSTEM_PROMPT },
+    { role: 'system', content: FACT_EXTRACTION_PROMPT },
     { role: 'user', content: userContent },
   ];
 }

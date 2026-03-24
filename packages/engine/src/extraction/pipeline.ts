@@ -10,7 +10,7 @@ import type {
   ExtractedEdge,
 } from './types.js';
 import { extractHeuristic } from './heuristic.js';
-import { extractWithLLM } from './llm-extractor.js';
+import { extractWithLLM, normalizeEntityName } from './llm-extractor.js';
 import { deduplicateFacts } from './dedup.js';
 import { processContradictions } from './contradiction.js';
 import { buildEntityIdMap, persistEdges } from './entity-extractor.js';
@@ -67,7 +67,9 @@ export function mergeEntities(
 ): ExtractedEntity[] {
   const seen = new Map<string, ExtractedEntity>();
   for (const e of [...heuristic, ...llm]) {
-    seen.set(e.canonicalName, e);
+    const normalized = normalizeEntityName(e.canonicalName);
+    if (normalized.length === 0) continue;
+    seen.set(normalized, { ...e, canonicalName: normalized });
   }
   return Array.from(seen.values());
 }
@@ -102,10 +104,34 @@ async function executeExtraction(
     const llmToUse = tier === 'smart_only' ? (config.smartLLM ?? config.cheapLLM) : config.cheapLLM;
     const llmTier = tier === 'smart_only' ? 'smart_llm' : 'cheap_llm';
 
-    const existingFactsForLLM = input.existingFacts?.map(f => ({
+    // Fetch existing facts for the LLM to compare against (enables contradiction detection)
+    let existingFactsForLLM = input.existingFacts?.map(f => ({
       lineageId: f.lineageId,
       content: f.content,
     }));
+
+    if (!existingFactsForLLM || existingFactsForLLM.length === 0) {
+      try {
+        const queryEmbedding = await config.embedding.embed(textContent.slice(0, 1000));
+        const similar = await config.storage.vectorSearch({
+          embedding: queryEmbedding,
+          tenantId: input.tenantId,
+          scope: input.scope,
+          scopeId: input.scopeId,
+          limit: 20,
+          minSimilarity: 0.3,
+          validOnly: true,
+        });
+        if (similar.length > 0) {
+          existingFactsForLLM = similar.map(s => ({
+            lineageId: s.fact.lineageId ?? s.fact.id,
+            content: s.fact.content,
+          }));
+        }
+      } catch {
+        // Non-fatal — extraction continues without existing facts
+      }
+    }
 
     const llmResult = await extractWithLLM(
       { llm: llmToUse, tier: llmTier },
@@ -275,20 +301,27 @@ async function executeExtraction(
       factsCreated++;
     }
 
-    // Link only the entities that THIS fact mentions (not all entities).
-    // If the fact has entityCanonicalNames, use those for precise linking.
-    // Otherwise fall back to linking all entities (backward compat).
-    const relevantNames = fact.entityCanonicalNames;
-    if (relevantNames && relevantNames.length > 0) {
-      for (const name of relevantNames) {
-        const entityId = entityIdMap.get(name);
-        if (entityId) {
-          await config.storage.linkFactEntity(factId, entityId, 'mentioned');
+    // Link only the entities that THIS fact mentions.
+    // If the LLM provided entityCanonicalNames, use those for precise linking.
+    // Otherwise fall back to TEXT-MATCH: check if the entity name appears in the fact content.
+    // NEVER link all entities — that creates garbage links.
+    let relevantNames = fact.entityCanonicalNames;
+    if (!relevantNames || relevantNames.length === 0) {
+      const contentLower = fact.content.toLowerCase();
+      relevantNames = [];
+      for (const [canonicalName] of entityIdMap) {
+        if (canonicalName === 'user') {
+          if (contentLower.startsWith('user ') || contentLower.includes(' user ')) {
+            relevantNames.push(canonicalName);
+          }
+        } else if (canonicalName.length >= 3 && contentLower.includes(canonicalName)) {
+          relevantNames.push(canonicalName);
         }
       }
-    } else {
-      // Fallback: link all entities (heuristic facts without per-fact entity tracking)
-      for (const entityId of entityIdMap.values()) {
+    }
+    for (const name of relevantNames) {
+      const entityId = entityIdMap.get(name);
+      if (entityId) {
         await config.storage.linkFactEntity(factId, entityId, 'mentioned');
       }
     }
@@ -377,6 +410,12 @@ async function executeExtraction(
   }
 
   // Create edges ONCE after all facts are persisted.
+  console.log(`[steno] Edge creation: ${mergedEdges.length} edges to persist, firstFactId=${firstFactId ? 'set' : 'MISSING'}`);
+  if (mergedEdges.length > 0) {
+    for (const e of mergedEdges.slice(0, 5)) {
+      console.log(`[steno]   edge: "${e.sourceName}" → "${e.relation}" → "${e.targetName}"`);
+    }
+  }
   if (firstFactId !== undefined && mergedEdges.length > 0) {
     edgesCreated = await persistEdges(
       config.storage,
@@ -471,20 +510,41 @@ export async function runExtractionPipeline(
   }
 
   // 3. Create extraction record with status='queued'
+  //    Handle race condition: concurrent workers may try to create the same hash simultaneously
   const extractionId = crypto.randomUUID();
   const textContent = inputToText(input);
 
-  await config.storage.createExtraction({
-    id: extractionId,
-    tenantId: input.tenantId,
-    inputType: input.inputType,
-    inputData: textContent,
-    inputHash,
-    inputSize: textContent.length,
-    scope: input.scope,
-    scopeId: input.scopeId,
-    sessionId: input.sessionId,
-  });
+  try {
+    await config.storage.createExtraction({
+      id: extractionId,
+      tenantId: input.tenantId,
+      inputType: input.inputType,
+      inputData: textContent,
+      inputHash,
+      inputSize: textContent.length,
+      scope: input.scope,
+      scopeId: input.scopeId,
+      sessionId: input.sessionId,
+    });
+  } catch {
+    // Duplicate hash — another worker beat us. Return their result.
+    const raceWinner = await config.storage.getExtractionByHash(input.tenantId, inputHash);
+    if (raceWinner) {
+      return {
+        extractionId: raceWinner.id,
+        factsCreated: raceWinner.factsCreated,
+        factsUpdated: raceWinner.factsUpdated,
+        factsInvalidated: raceWinner.factsInvalidated,
+        entitiesCreated: raceWinner.entitiesCreated,
+        edgesCreated: raceWinner.edgesCreated,
+        tier: raceWinner.tierUsed ?? 'heuristic',
+        costTokensInput: raceWinner.costTokensInput,
+        costTokensOutput: raceWinner.costTokensOutput,
+        durationMs: raceWinner.durationMs ?? 0,
+      };
+    }
+    throw new Error('Extraction race condition: duplicate hash but no existing record found');
+  }
 
   // 4. Update status to 'processing'
   await config.storage.updateExtraction(input.tenantId, extractionId, {

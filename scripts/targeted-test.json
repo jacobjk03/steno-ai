@@ -1,0 +1,47 @@
+{
+  "description": "Targeted test data for the 3 failing questions + noise",
+  "entries": [
+    {
+      "date": "2025-07-16",
+      "content": "Busy day at Brightwell Capital today. The innovation day presentation went great - my boss loved it. I've been working at Brightwell for about a year now and it's been intense but rewarding. The team is solid even though they ramble too much in meetings."
+    },
+    {
+      "date": "2025-07-15",
+      "content": "Casey and I went shopping yesterday. I got her diamond earrings as a surprise gift. She looked at them and laughed - she said I should have gotten myself AirPods Max instead of buying her earrings. Typical Casey, always thinking about me. I love that about her."
+    },
+    {
+      "date": "2025-07-10",
+      "content": "Had a random conversation with the guys about types. I admitted that besides Casey, I've always been attracted to Asian girls. The guys laughed but it's true. Casey knows about it and doesn't mind."
+    },
+    {
+      "date": "2025-07-14",
+      "content": "Working on LifePath again tonight. The MVP is coming together. I spent about 3 hours after work coding the main flow. It's agentic now which makes it way more interesting."
+    },
+    {
+      "date": "2025-07-12",
+      "content": "Went to the gym today, hit a new PR on bench press. Then grabbed lunch with Arjun from work. We talked about the cloud migration project at Brightwell Capital."
+    },
+    {
+      "date": "2025-07-11",
+      "content": "Casey's sister Tara called - her new boyfriend Eli is coming to the family dinner next week. Should be interesting. Casey is excited to meet him."
+    },
+    {
+      "date": "2025-07-09",
+      "content": "Jamie came over and literally just played video games for 5 hours straight while eating Doritos and pizza. I love the guy but it drives me crazy. Get up and do something with your life."
+    },
+    {
+      "date": "2025-07-08",
+      "content": "Played Catan with Casey last night. She destroyed me as usual. We had a great time though. I'm thinking about proposing at the end of the year. Need to start planning."
+    }
+  ],
+  "questions": [
+    { "q": "Where does the user work?", "a": "Brightwell Capital" },
+    { "q": "What did the user's partner say about the diamond earrings?", "a": "She said he should have gotten himself AirPods Max instead" },
+    { "q": "What kind of girls is the user attracted to besides their partner?", "a": "Asian girls" },
+    { "q": "What project is the user working on?", "a": "LifePath" },
+    { "q": "Who is the user's partner?", "a": "Casey" },
+    { "q": "Who is Jamie and what annoys the user about him?", "a": "Jamie plays video games all day and eats junk food" },
+    { "q": "What board game did the user play?", "a": "Catan" },
+    { "q": "Who is Eli?", "a": "Tara's (Casey's sister's) new boyfriend" }
+  ]
+}

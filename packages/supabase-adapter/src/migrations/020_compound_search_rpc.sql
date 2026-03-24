@@ -49,7 +49,7 @@ AS $$
 BEGIN
     RETURN QUERY
 
-    -- Vector search results
+    -- Vector search results (exclude raw chunks — only search atomic extracted facts)
     (SELECT
         'vector'::TEXT AS source,
         f.id, f.tenant_id, f.scope, f.scope_id, f.session_id,
@@ -66,13 +66,15 @@ BEGIN
       AND f.scope = match_scope
       AND f.scope_id = match_scope_id
       AND f.valid_until IS NULL
+      AND f.source_type != 'api'
+      AND NOT ('raw_chunk' = ANY(f.tags))
       AND (1 - (f.embedding <=> query_embedding::vector)) >= min_similarity
     ORDER BY f.embedding <=> query_embedding::vector
     LIMIT match_count)
 
     UNION ALL
 
-    -- Keyword search results (FTS)
+    -- Keyword search results (FTS, exclude raw chunks)
     (SELECT
         'keyword'::TEXT AS source,
         f.id, f.tenant_id, f.scope, f.scope_id, f.session_id,
@@ -89,6 +91,8 @@ BEGIN
       AND f.scope = match_scope
       AND f.scope_id = match_scope_id
       AND f.valid_until IS NULL
+      AND f.source_type != 'api'
+      AND NOT ('raw_chunk' = ANY(f.tags))
       AND f.search_vector @@ plainto_tsquery('english', search_query)
     ORDER BY relevance_score DESC
     LIMIT match_count);

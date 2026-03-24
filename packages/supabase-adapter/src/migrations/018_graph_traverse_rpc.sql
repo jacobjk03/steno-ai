@@ -94,9 +94,12 @@ BEGIN
           AND e2.id != ALL(t.visited_ids)
     )
     SELECT
-        entity_id, entity_name, entity_type, canonical_name, properties,
-        hop_depth, edge_id, edge_source_id, edge_target_id, edge_relation,
-        edge_type, edge_weight, edge_valid_from, edge_valid_until, edge_confidence
+        traversal.entity_id, traversal.entity_name, traversal.entity_type,
+        traversal.canonical_name, traversal.properties,
+        traversal.hop_depth, traversal.edge_id, traversal.edge_source_id,
+        traversal.edge_target_id, traversal.edge_relation,
+        traversal.edge_type, traversal.edge_weight, traversal.edge_valid_from,
+        traversal.edge_valid_until, traversal.edge_confidence
     FROM traversal
     LIMIT max_entities;
 END;

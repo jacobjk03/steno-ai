@@ -1,68 +1,70 @@
 /**
- * Trace EXACTLY where search results disappear in the pipeline
+ * Trace search pipeline for a single query to see what each component returns
  */
 import { createSupabaseClient, SupabaseStorageAdapter } from '../packages/supabase-adapter/src/index.js';
 import { OpenAILLMAdapter, OpenAIEmbeddingAdapter } from '../packages/openai-adapter/src/index.js';
+import { InMemoryCacheAdapter } from '../packages/cache-adapter/src/index.js';
+import { CachedEmbeddingAdapter } from '../packages/engine/src/retrieval/embedding-cache.js';
+import { compoundSearch } from '../packages/engine/src/retrieval/compound-search.js';
+import { graphSearch } from '../packages/engine/src/retrieval/graph-traversal.js';
 import { search } from '../packages/engine/src/retrieval/search.js';
 import { config } from 'dotenv';
 config({ path: '.env' });
 
+const tenantId = '00000000-0000-0000-0000-a00000000002';
+const query = process.argv[2] || "Where does Riley work?";
+
 async function main() {
   const supabase = createSupabaseClient({ url: process.env.SUPABASE_URL!, serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY! });
   const storage = new SupabaseStorageAdapter(supabase);
-  const embedding = new OpenAIEmbeddingAdapter({ apiKey: process.env.OPENAI_API_KEY! });
+  const rawEmbedding = new OpenAIEmbeddingAdapter({ apiKey: process.env.OPENAI_API_KEY!, model: 'text-embedding-3-large', dimensions: 3072 });
+  const cache = new InMemoryCacheAdapter();
+  const embedding = new CachedEmbeddingAdapter(rawEmbedding, cache, 7200);
   const cheapLLM = new OpenAILLMAdapter({ apiKey: process.env.OPENAI_API_KEY!, model: 'gpt-4.1-nano' });
-  const tenantId = '00000000-0000-0000-0000-a00000000002';
 
-  // Step 1: Direct vector search (bypass everything)
-  console.log('=== STEP 1: Direct vector search ===');
-  const qEmb = await embedding.embed("What board game did Riley play?");
-  const vectorResults = await storage.vectorSearch({
-    embedding: qEmb, tenantId, scope: 'user', scopeId: 'riley_brooks',
-    limit: 5, minSimilarity: 0, validOnly: true,
-  });
-  console.log(`Vector results: ${vectorResults.length}`);
-  for (const r of vectorResults) console.log(`  [${r.similarity.toFixed(3)}] ${r.fact.content.slice(0, 80)}`);
+  console.log(`=== TRACING SEARCH: "${query}" ===\n`);
 
-  // Step 2: Compound search
-  console.log('\n=== STEP 2: Compound search ===');
-  const compoundResults = await storage.compoundSearch({
-    embedding: qEmb, query: "board game Riley play",
-    tenantId, scope: 'user', scopeId: 'riley_brooks', limit: 20,
-  });
-  console.log(`Compound results: ${compoundResults.length}`);
-  for (const r of compoundResults.slice(0, 5)) console.log(`  [${r.source} ${r.relevanceScore.toFixed(3)}] ${(r.fact as any).content?.slice(0, 80) || JSON.stringify(r.fact).slice(0, 80)}`);
+  // 1. Compound search (vector + keyword)
+  console.log('--- COMPOUND SEARCH (vector + keyword) ---');
+  try {
+    const qEmb = await embedding.embed(query);
+    const compoundResults = await storage.compoundSearch({
+      embedding: qEmb, query, tenantId, scope: 'user', scopeId: 'riley_brooks', limit: 20,
+    });
+    console.log(`Results: ${compoundResults.length}`);
+    for (const r of compoundResults.slice(0, 8)) {
+      console.log(`  [${r.source} score=${r.relevanceScore.toFixed(3)}] ${(r.fact as any).content?.slice(0, 90) || 'no content'}`);
+    }
+  } catch(e) {
+    console.error(`  ERROR: ${e instanceof Error ? e.message : e}`);
+  }
 
-  // Step 3: Full search (no reranker)
-  console.log('\n=== STEP 3: Full search (NO reranker) ===');
-  const searchResults = await search(
-    { storage, embedding },
-    { query: "What board game did Riley play?", tenantId, scope: 'user', scopeId: 'riley_brooks', limit: 20 }
-  );
-  console.log(`Search results: ${searchResults.results.length}, candidates: ${searchResults.totalCandidates}`);
-  for (const r of searchResults.results.slice(0, 5)) console.log(`  [${r.score.toFixed(3)}] ${r.fact.content.slice(0, 80)}`);
+  // 2. Graph search
+  console.log('\n--- GRAPH SEARCH ---');
+  try {
+    const graphResults = await graphSearch(storage, embedding, query, tenantId, 'user', 'riley_brooks', 20);
+    console.log(`Results: ${graphResults.length}`);
+    for (const r of graphResults.slice(0, 8)) {
+      console.log(`  [g=${r.graphScore.toFixed(3)}] ${r.fact.content.slice(0, 90)}`);
+    }
+  } catch(e) {
+    console.error(`  ERROR: ${e instanceof Error ? e.message : e}`);
+  }
 
-  // Step 4: Full search WITH reranker
-  console.log('\n=== STEP 4: Full search (WITH reranker) ===');
-  const rerankedResults = await search(
-    { storage, embedding, rerankerLLM: cheapLLM },
-    { query: "What board game did Riley play?", tenantId, scope: 'user', scopeId: 'riley_brooks', limit: 20 }
-  );
-  console.log(`Reranked results: ${rerankedResults.results.length}, candidates: ${rerankedResults.totalCandidates}`);
-  for (const r of rerankedResults.results.slice(0, 5)) console.log(`  [${r.score.toFixed(3)}] ${r.fact.content.slice(0, 80)}`);
-
-  // Step 5: Answer from the context
-  console.log('\n=== STEP 5: Answer generation ===');
-  const context = rerankedResults.results.map(r => r.fact.content).join('\n');
-  console.log(`Context length: ${context.length} chars, ${rerankedResults.results.length} facts`);
-  console.log(`First 3 facts in context:`);
-  for (const r of rerankedResults.results.slice(0, 3)) console.log(`  - ${r.fact.content.slice(0, 100)}`);
-
-  const answer = await cheapLLM.complete([
-    { role: 'system', content: 'Answer the question based on the context. Be concise.' },
-    { role: 'user', content: `Context:\n${context}\n\nQuestion: What board game did Riley play?` },
-  ], { temperature: 0 });
-  console.log(`\nAnswer: ${answer.content}`);
+  // 3. Full search (fusion + reranker)
+  console.log('\n--- FULL SEARCH (fusion, NO reranker) ---');
+  try {
+    const fullResults = await search(
+      { storage, embedding },
+      { query, tenantId, scope: 'user', scopeId: 'riley_brooks', limit: 20 }
+    );
+    console.log(`Results: ${fullResults.results.length}`);
+    for (const r of fullResults.results.slice(0, 10)) {
+      const s = r.signals ?? {} as any;
+      console.log(`  [score=${r.score.toFixed(3)} v=${(s.vectorScore??0).toFixed(3)} k=${(s.keywordScore??0).toFixed(3)} g=${(s.graphScore??0).toFixed(3)}] ${r.fact.content.slice(0, 80)}`);
+    }
+  } catch(e) {
+    console.error(`  ERROR: ${e instanceof Error ? e.message : e}`);
+  }
 }
-
 main().catch(console.error);
