@@ -68,11 +68,14 @@ export function initializeDatabase(db: Database.Database, config: { embeddingDim
       modality TEXT NOT NULL DEFAULT 'text',
       tags TEXT NOT NULL DEFAULT '[]',
       metadata TEXT NOT NULL DEFAULT '{}',
+      event_date TEXT,
+      document_date TEXT,
       created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || 'Z')
     );
     CREATE INDEX IF NOT EXISTS idx_facts_tenant_scope ON facts(tenant_id, scope, scope_id);
     CREATE INDEX IF NOT EXISTS idx_facts_lineage ON facts(tenant_id, lineage_id);
     CREATE INDEX IF NOT EXISTS idx_facts_created ON facts(created_at);
+    CREATE INDEX IF NOT EXISTS idx_facts_event_date ON facts(event_date) WHERE event_date IS NOT NULL;
 
     -- Fact embeddings (separate table for BLOB storage)
     CREATE TABLE IF NOT EXISTS fact_embeddings (

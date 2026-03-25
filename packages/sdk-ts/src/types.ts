@@ -36,6 +36,12 @@ export interface SearchResult {
   score: number;
   scope: Scope;
   scopeId: string;
+  importance?: number;
+  lineageId?: string;
+  /** When the event described in the fact occurred */
+  eventDate?: string | null;
+  /** When the conversation/document was authored */
+  documentDate?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -51,6 +57,12 @@ export interface Fact {
   scope: Scope;
   scopeId: string;
   confidence: number;
+  importance?: number;
+  lineageId?: string;
+  /** When the event described in the fact occurred */
+  eventDate?: string | null;
+  /** When the conversation/document was authored */
+  documentDate?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -60,6 +72,7 @@ export interface FactHistory {
   factId: string;
   content: string;
   action: string;
+  lineageId?: string;
   createdAt: string;
 }
 

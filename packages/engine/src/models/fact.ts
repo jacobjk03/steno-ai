@@ -41,6 +41,10 @@ export const FactSchema = z.object({
   modality: z.enum(MODALITIES),
   tags: z.array(z.string().max(100)).max(20),
   metadata: z.record(z.string(), z.unknown()),
+  /** When the event described in the fact actually occurred */
+  eventDate: z.coerce.date().nullable().optional(),
+  /** When the conversation/document was authored */
+  documentDate: z.coerce.date().nullable().optional(),
   createdAt: z.coerce.date(),
 });
 
