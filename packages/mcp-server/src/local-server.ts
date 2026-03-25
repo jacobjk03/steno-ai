@@ -50,9 +50,14 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
     'steno_remember',
     'Store information in long-term memory. Use this to remember facts, preferences, decisions, or anything worth recalling later.',
     {
-      content: z.string().describe('What to remember — a fact, preference, decision, or observation'),
+      content: z.string().optional().describe('What to remember'),
+      text: z.string().optional().describe('What to remember (alias for content)'),
     },
-    async ({ content }) => {
+    async (args) => {
+      const memoryText = args.content || args.text;
+      if (!memoryText) {
+        return { content: [{ type: 'text' as const, text: 'Error: provide content or text' }] };
+      }
       const runPipeline = await getPipeline();
       const result = await runPipeline(
         {
@@ -68,7 +73,7 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
           scope: config.scope,
           scopeId: config.scopeId,
           inputType: 'raw_text',
-          data: content,
+          data: memoryText,
         },
       );
       return {

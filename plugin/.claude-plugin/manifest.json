@@ -1,0 +1,54 @@
+{
+  "name": "steno-memory",
+  "version": "0.1.0",
+  "description": "Long-term memory for Claude Code — remembers your preferences, decisions, and context across sessions and projects.",
+  "author": "Steno AI",
+  "mcpServers": {
+    "steno-memory": {
+      "command": "npx",
+      "args": ["tsx", "${CLAUDE_PLUGIN_ROOT}/../packages/mcp-server/src/local.ts"],
+      "env": {
+        "SUPABASE_URL": "${SUPABASE_URL}",
+        "SUPABASE_SERVICE_ROLE_KEY": "${SUPABASE_SERVICE_ROLE_KEY}",
+        "OPENAI_API_KEY": "${OPENAI_API_KEY}",
+        "PERPLEXITY_API_KEY": "${PERPLEXITY_API_KEY}"
+      },
+      "userConfig": {
+        "SUPABASE_URL": {
+          "description": "Supabase project URL",
+          "required": true,
+          "sensitive": true
+        },
+        "SUPABASE_SERVICE_ROLE_KEY": {
+          "description": "Supabase service role key",
+          "required": true,
+          "sensitive": true
+        },
+        "OPENAI_API_KEY": {
+          "description": "OpenAI API key for LLM extraction",
+          "required": true,
+          "sensitive": true
+        },
+        "PERPLEXITY_API_KEY": {
+          "description": "Perplexity API key for embeddings (optional, falls back to OpenAI)",
+          "required": false,
+          "sensitive": true
+        }
+      }
+    }
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.mjs\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
