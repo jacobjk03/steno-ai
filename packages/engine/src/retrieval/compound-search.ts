@@ -3,6 +3,31 @@ import type { EmbeddingAdapter } from '../adapters/embedding.js';
 import type { SearchOptions, Candidate } from './types.js';
 
 /**
+ * Words to strip from search queries before keyword matching.
+ * Only question/function words that appear in queries but rarely in stored facts.
+ *
+ * NOTE: We intentionally do NOT strip "user" even though it appears in most facts.
+ * PostgreSQL's ts_rank uses IDF (inverse document frequency) weighting internally,
+ * so "user" gets near-zero weight when it appears in most documents. This is the
+ * correct behavior — ts_rank("user | hono") will score a fact containing "hono"
+ * much higher than one containing only "user", even though both match the tsquery.
+ */
+const QUERY_STOP_WORDS = new Set([
+  // Question words
+  'what', 'when', 'where', 'who', 'why', 'how', 'which',
+  // Auxiliary verbs from questions
+  'is', 'are', 'was', 'were', 'did', 'does', 'do', 'will', 'can', 'could', 'would', 'should',
+  'have', 'has', 'had', 'been', 'be',
+  // Articles and prepositions
+  'the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of', 'with',
+  // Conjunctions
+  'and', 'or', 'but', 'not', 'if', 'still',
+  // Pronouns
+  'it', 'its', 'her', 'his', 'she', 'he', 'they', 'them', 'their', 'my', 'your', 'our',
+  'that', 'this',
+]);
+
+/**
  * Compound search: embeds the query, then calls storage.compoundSearch
  * (ONE database call for both vector + keyword), and splits results
  * into Candidate format.
@@ -18,30 +43,12 @@ export async function compoundSearchSignal(
 ): Promise<{ vectorCandidates: Candidate[]; keywordCandidates: Candidate[] }> {
   const queryEmbedding = await embedding.embed(query);
 
-  // Extract key content words for keyword search (strip question words and stop words)
-  // Strip question words and pronouns that don't help keyword search.
-  // PostgreSQL's to_tsquery('english', ...) handles standard English stop words
-  // and IDF weighting natively — we only need to strip query-specific noise.
-  const stopWords = new Set([
-    // Question words (appear in queries but not in stored facts)
-    'what', 'when', 'where', 'who', 'why', 'how', 'which',
-    // Verbs that appear in questions
-    'is', 'are', 'was', 'were', 'did', 'does', 'do', 'will', 'can', 'could', 'would', 'should',
-    'have', 'has', 'had', 'been', 'be',
-    // Articles and prepositions (Postgres handles these but we strip early)
-    'the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of', 'with',
-    // Conjunctions
-    'and', 'or', 'but', 'not', 'if', 'still',
-    // Pronouns
-    'it', 'its', 'her', 'his', 'she', 'he', 'they', 'them', 'their', 'my', 'your', 'our',
-    'that', 'this',
-    // "user" appears in nearly every stored fact — searching it matches everything
-    'user',
-  ]);
+  // Extract content words, join with OR for to_tsquery
+  // ts_rank handles IDF weighting — high-frequency terms get low scores automatically
   const keywordQuery = query.toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
-    .filter(w => w.length >= 3 && !stopWords.has(w))
+    .filter(w => w.length >= 3 && !QUERY_STOP_WORDS.has(w))
     .join(' | ');
 
   const results = await storage.compoundSearch({
@@ -81,7 +88,7 @@ export async function compoundSearchSignal(
     }
   }
 
-  // Normalize keyword scores to [0, 1] range (same as keyword-search.ts)
+  // Normalize keyword scores to [0, 1] range
   if (keywordCandidates.length > 0) {
     const maxRank = Math.max(...keywordCandidates.map(c => c.keywordScore));
     if (maxRank > 0) {
