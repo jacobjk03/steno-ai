@@ -64,22 +64,25 @@ export async function search(
   ]);
   console.error(`[steno-search] Signals: ${Date.now() - t0}ms (${compoundResults.length} compound queries, graph=${graphSettled ? 'ok' : 'empty'}, trigger=ok)`);
 
-  // Merge compound search results from all expanded queries (deduplicate by fact ID)
+  // Merge compound search results from all expanded queries.
+  // Use SEPARATE dedup sets for vector and keyword — a fact can appear in BOTH
+  // streams and the fusion step will merge them by taking Math.max per signal.
   const vectorCandidates: Candidate[] = [];
   const keywordCandidates: Candidate[] = [];
-  const seenFactIds = new Set<string>();
+  const seenVector = new Set<string>();
+  const seenKeyword = new Set<string>();
 
   for (const settled of compoundResults) {
     if (settled.status !== 'fulfilled') continue;
     for (const c of settled.value.vectorCandidates) {
-      if (!seenFactIds.has(c.fact.id)) {
-        seenFactIds.add(c.fact.id);
+      if (!seenVector.has(c.fact.id)) {
+        seenVector.add(c.fact.id);
         vectorCandidates.push(c);
       }
     }
     for (const c of settled.value.keywordCandidates) {
-      if (!seenFactIds.has(c.fact.id)) {
-        seenFactIds.add(c.fact.id);
+      if (!seenKeyword.has(c.fact.id)) {
+        seenKeyword.add(c.fact.id);
         keywordCandidates.push(c);
       }
     }
