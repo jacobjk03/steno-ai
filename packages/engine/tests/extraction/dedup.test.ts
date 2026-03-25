@@ -211,7 +211,7 @@ describe('deduplicateFacts – no similar matches', () => {
       scope: SCOPE,
       scopeId: SCOPE_ID,
       limit: 5,
-      minSimilarity: 0.85,
+      minSimilarity: 0.70,
       validOnly: true,
     });
   });
@@ -472,7 +472,7 @@ describe('deduplicateFacts – LLM failure', () => {
 });
 
 describe('deduplicateFacts – similarity threshold', () => {
-  it('uses default threshold of 0.85 when none specified', async () => {
+  it('uses default threshold of 0.70 when none specified', async () => {
     const vectorSearch = vi.fn().mockResolvedValue([]);
     const config: DedupConfig = {
       storage: makeMockStorage({ vectorSearch }),
@@ -483,7 +483,7 @@ describe('deduplicateFacts – similarity threshold', () => {
     await deduplicateFacts(config, [makeFact()], TENANT_ID, SCOPE, SCOPE_ID);
 
     expect(vectorSearch).toHaveBeenCalledWith(
-      expect.objectContaining({ minSimilarity: 0.85 }),
+      expect.objectContaining({ minSimilarity: 0.70 }),
     );
   });
 

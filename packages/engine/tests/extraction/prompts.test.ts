@@ -1,61 +1,99 @@
 import { describe, it, expect } from 'vitest';
-import { EXTRACTION_SYSTEM_PROMPT, buildExtractionPrompt } from '../../src/extraction/prompts.js';
+import {
+  FACT_EXTRACTION_PROMPT,
+  GRAPH_EXTRACTION_PROMPT,
+  DEDUP_PROMPT,
+  EXTRACTION_SYSTEM_PROMPT,
+  buildExtractionPrompt,
+  buildFactExtractionPrompt,
+  buildGraphExtractionPrompt,
+  buildDedupPrompt,
+} from '../../src/extraction/prompts.js';
 
-describe('EXTRACTION_SYSTEM_PROMPT', () => {
-  it('contains ATOMIC FACTS instruction', () => {
-    expect(EXTRACTION_SYSTEM_PROMPT).toContain('ATOMIC FACTS');
+describe('FACT_EXTRACTION_PROMPT', () => {
+  it('is aliased as EXTRACTION_SYSTEM_PROMPT for backward compat', () => {
+    expect(EXTRACTION_SYSTEM_PROMPT).toBe(FACT_EXTRACTION_PROMPT);
   });
 
-  it('contains importance scoring guideline with 0.95', () => {
-    expect(EXTRACTION_SYSTEM_PROMPT).toContain('0.95');
+  it('contains WHO IS USER section', () => {
+    expect(FACT_EXTRACTION_PROMPT).toContain('WHO IS "USER"');
   });
 
-  it('contains importance scoring guideline mentioning Health', () => {
-    expect(EXTRACTION_SYSTEM_PROMPT).toContain('Health');
+  it('contains self-contained atomic facts instruction', () => {
+    expect(FACT_EXTRACTION_PROMPT).toContain('SELF-CONTAINED atomic facts');
   });
 
-  it('contains JSON output instruction', () => {
-    expect(EXTRACTION_SYSTEM_PROMPT).toContain('JSON');
+  it('contains JSON output format', () => {
+    expect(FACT_EXTRACTION_PROMPT).toContain('JSON');
+    expect(FACT_EXTRACTION_PROMPT).toContain('"facts"');
   });
 
-  it('contains entity type options: person', () => {
-    expect(EXTRACTION_SYSTEM_PROMPT).toContain('person');
+  it('contains resolve references instruction', () => {
+    expect(FACT_EXTRACTION_PROMPT).toContain('Resolve ALL other references');
   });
 
-  it('contains entity type options: organization', () => {
-    expect(EXTRACTION_SYSTEM_PROMPT).toContain('organization');
+  it('contains third person instruction', () => {
+    expect(FACT_EXTRACTION_PROMPT).toContain('third person');
   });
 
-  it('contains edge_type options: associative', () => {
-    expect(EXTRACTION_SYSTEM_PROMPT).toContain('associative');
+  it('contains direct identity/trait instruction', () => {
+    expect(FACT_EXTRACTION_PROMPT).toContain('state them DIRECTLY');
   });
 
-  it('contains edge_type options: causal', () => {
-    expect(EXTRACTION_SYSTEM_PROMPT).toContain('causal');
-  });
-
-  it('contains operation options: ADD', () => {
-    expect(EXTRACTION_SYSTEM_PROMPT).toContain('ADD');
-  });
-
-  it('contains operation options: UPDATE', () => {
-    expect(EXTRACTION_SYSTEM_PROMPT).toContain('UPDATE');
-  });
-
-  it('contains operation options: INVALIDATE', () => {
-    expect(EXTRACTION_SYSTEM_PROMPT).toContain('INVALIDATE');
-  });
-
-  it('contains operation options: NOOP', () => {
-    expect(EXTRACTION_SYSTEM_PROMPT).toContain('NOOP');
-  });
-
-  it('contains operation options: CONTRADICT', () => {
-    expect(EXTRACTION_SYSTEM_PROMPT).toContain('CONTRADICT');
+  it('contains person role identification', () => {
+    expect(FACT_EXTRACTION_PROMPT).toContain('person');
   });
 });
 
-describe('buildExtractionPrompt', () => {
+describe('GRAPH_EXTRACTION_PROMPT', () => {
+  it('contains entity type: organization', () => {
+    expect(GRAPH_EXTRACTION_PROMPT).toContain('organization');
+  });
+
+  it('contains entity type: person', () => {
+    expect(GRAPH_EXTRACTION_PROMPT).toContain('person');
+  });
+
+  it('contains entity type: location', () => {
+    expect(GRAPH_EXTRACTION_PROMPT).toContain('location');
+  });
+
+  it('contains entity type: technology', () => {
+    expect(GRAPH_EXTRACTION_PROMPT).toContain('technology');
+  });
+
+  it('contains snake_case relation instruction', () => {
+    expect(GRAPH_EXTRACTION_PROMPT).toContain('snake_case');
+  });
+
+  it('contains entity_type field in example', () => {
+    expect(GRAPH_EXTRACTION_PROMPT).toContain('entity_type');
+  });
+
+  it('contains edges array in output format', () => {
+    expect(GRAPH_EXTRACTION_PROMPT).toContain('"edges"');
+  });
+});
+
+describe('DEDUP_PROMPT', () => {
+  it('contains ADD operation', () => {
+    expect(DEDUP_PROMPT).toContain('ADD');
+  });
+
+  it('contains UPDATE operation', () => {
+    expect(DEDUP_PROMPT).toContain('UPDATE');
+  });
+
+  it('contains NOOP operation', () => {
+    expect(DEDUP_PROMPT).toContain('NOOP');
+  });
+
+  it('contains CONTRADICT operation', () => {
+    expect(DEDUP_PROMPT).toContain('CONTRADICT');
+  });
+});
+
+describe('buildExtractionPrompt (legacy)', () => {
   it('returns an array with system and user messages', () => {
     const messages = buildExtractionPrompt('Test input text');
     expect(messages).toHaveLength(2);
@@ -77,9 +115,9 @@ describe('buildExtractionPrompt', () => {
     expect(messages[1].content).toContain(input);
   });
 
-  it('system message content equals EXTRACTION_SYSTEM_PROMPT', () => {
+  it('system message content equals FACT_EXTRACTION_PROMPT', () => {
     const messages = buildExtractionPrompt('some text');
-    expect(messages[0].content).toBe(EXTRACTION_SYSTEM_PROMPT);
+    expect(messages[0].content).toBe(FACT_EXTRACTION_PROMPT);
   });
 
   it('without existingFacts, user message does NOT contain EXISTING FACTS', () => {
@@ -116,5 +154,66 @@ describe('buildExtractionPrompt', () => {
   it('with empty existingFacts array, user message does NOT contain EXISTING FACTS', () => {
     const messages = buildExtractionPrompt('some text', []);
     expect(messages[1].content).not.toContain('EXISTING FACTS');
+  });
+});
+
+describe('buildFactExtractionPrompt', () => {
+  it('returns system + user messages', () => {
+    const messages = buildFactExtractionPrompt('Test input');
+    expect(messages).toHaveLength(2);
+    expect(messages[0].role).toBe('system');
+    expect(messages[1].role).toBe('user');
+  });
+
+  it('system prompt is FACT_EXTRACTION_PROMPT', () => {
+    const messages = buildFactExtractionPrompt('Test input');
+    expect(messages[0].content).toBe(FACT_EXTRACTION_PROMPT);
+  });
+
+  it('user message contains input text', () => {
+    const messages = buildFactExtractionPrompt('My name is Alice');
+    expect(messages[1].content).toContain('My name is Alice');
+  });
+});
+
+describe('buildGraphExtractionPrompt', () => {
+  it('returns system + user messages', () => {
+    const messages = buildGraphExtractionPrompt(['Fact 1', 'Fact 2']);
+    expect(messages).toHaveLength(2);
+    expect(messages[0].role).toBe('system');
+    expect(messages[1].role).toBe('user');
+  });
+
+  it('system prompt is GRAPH_EXTRACTION_PROMPT', () => {
+    const messages = buildGraphExtractionPrompt(['Fact 1']);
+    expect(messages[0].content).toBe(GRAPH_EXTRACTION_PROMPT);
+  });
+
+  it('user message contains numbered facts', () => {
+    const messages = buildGraphExtractionPrompt(['User likes cats', 'User works at Google']);
+    expect(messages[1].content).toContain('1. User likes cats');
+    expect(messages[1].content).toContain('2. User works at Google');
+  });
+});
+
+describe('buildDedupPrompt', () => {
+  it('returns system + user messages', () => {
+    const messages = buildDedupPrompt(['new fact'], [{ lineage_id: 'lid-1', content: 'old fact' }]);
+    expect(messages).toHaveLength(2);
+  });
+
+  it('system prompt is DEDUP_PROMPT', () => {
+    const messages = buildDedupPrompt(['new fact'], [{ lineage_id: 'lid-1', content: 'old fact' }]);
+    expect(messages[0].content).toBe(DEDUP_PROMPT);
+  });
+
+  it('user message contains new and existing facts', () => {
+    const messages = buildDedupPrompt(
+      ['User likes dogs'],
+      [{ lineage_id: 'lid-1', content: 'User likes cats' }],
+    );
+    expect(messages[1].content).toContain('User likes dogs');
+    expect(messages[1].content).toContain('User likes cats');
+    expect(messages[1].content).toContain('lid-1');
   });
 });

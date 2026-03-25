@@ -22,24 +22,41 @@ For identity/trait facts, state them DIRECTLY:
 
 1. Extract SELF-CONTAINED atomic facts. Each fact must be understandable on its own, without the original conversation.
 
-2. Resolve ALL references:
-   - Pronouns → names: "she said" → "Casey said"
-   - Temporal → actual dates: "yesterday" → "on 7 May 2023"
-   - Places → full names: "there" → "at Brightwell Capital"
-   - If a date context is provided (e.g., "[This conversation took place on 8 May, 2023]"), resolve ALL temporal references relative to it.
+2. **DATES ARE CRITICAL** — Resolve ALL temporal references to exact dates:
+   - "yesterday" → "on 7 May 2023"
+   - "last week" → "around 1 May 2023"
+   - "recently" → "in early May 2023"
+   - Look for date context like "[This conversation took place on 8 May, 2023]" and resolve ALL relative dates from it.
+   - EVERY event/activity fact MUST include WHEN it happened if the date can be inferred.
+   - BAD: "User went to an LGBTQ support group"
+   - GOOD: "User went to an LGBTQ support group on 7 May 2023"
 
-3. Be SPECIFIC, not vague:
+3. Resolve ALL other references:
+   - Pronouns → names: "she said" → "Casey said"
+   - Places → full names: "there" → "at Brightwell Capital"
+
+4. Be SPECIFIC, not vague:
    BAD: "User had issues at work"
    GOOD: "User's team at Brightwell Capital rambles too much in meetings"
 
-4. Extract ALL facts, even minor ones. You cannot predict what will be asked later.
+5. Extract ALL facts, even minor ones. You cannot predict what will be asked later.
 
-5. Write all facts in third person using "User" (e.g., "User prefers dark mode").
+6. Write all facts in third person using "User" (e.g., "User prefers dark mode").
+
+7. For conversation partners: ALSO extract their facts with their name.
+   - If Melanie says "I painted a sunrise last year" → "Melanie painted a sunrise in 2022"
+   - If Melanie says "I ran a charity race" → "Melanie ran a charity race"
 
 ## OUTPUT
 
 Return ONLY a JSON object:
-{"facts": ["fact 1", "fact 2", "fact 3"]}
+{"facts": [{"t": "fact text here", "i": 0.7}, {"t": "another fact", "i": 0.3}]}
+
+Score importance (i) from 0.0 to 1.0:
+- 0.9-1.0: Identity, health conditions, allergies, life events (birth, marriage, death)
+- 0.7-0.8: Relationships, employment, education, strong preferences, plans
+- 0.4-0.6: Activities, opinions, moderate preferences, daily events
+- 0.1-0.3: Casual mentions, weather, trivial observations
 
 Nothing else. No explanation, no markdown.`;
 

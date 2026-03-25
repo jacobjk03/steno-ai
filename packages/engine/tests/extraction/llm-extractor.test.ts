@@ -3,17 +3,31 @@ import type { LLMAdapter, LLMMessage, LLMResponse } from '../../src/adapters/llm
 import { extractWithLLM } from '../../src/extraction/llm-extractor.js';
 
 // ---------------------------------------------------------------------------
-// Mock LLMAdapter
+// Mock LLMAdapter — supports two-pass extraction
 // ---------------------------------------------------------------------------
 
-class MockLLMAdapter implements LLMAdapter {
+/**
+ * The new two-pass architecture makes two LLM calls:
+ * 1. Fact extraction → returns {"facts": ["string1", "string2"]}
+ * 2. Graph extraction → returns {"entities": [...], "edges": [...]}
+ *
+ * TwoPassMockLLM responds with different payloads for each call.
+ */
+class TwoPassMockLLM implements LLMAdapter {
   readonly model = 'mock-model';
-  private response: string;
-  constructor(response: string) {
-    this.response = response;
+  private callCount = 0;
+  private pass1Response: string;
+  private pass2Response: string;
+
+  constructor(pass1Response: string, pass2Response?: string) {
+    this.pass1Response = pass1Response;
+    this.pass2Response = pass2Response ?? JSON.stringify({ entities: [], edges: [] });
   }
+
   async complete(_messages: LLMMessage[]): Promise<LLMResponse> {
-    return { content: this.response, tokensInput: 10, tokensOutput: 20, model: 'mock-model' };
+    this.callCount++;
+    const content = this.callCount === 1 ? this.pass1Response : this.pass2Response;
+    return { content, tokensInput: 10, tokensOutput: 20, model: 'mock-model' };
   }
 }
 
@@ -28,45 +42,30 @@ class ThrowingLLMAdapter implements LLMAdapter {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const validResponse = JSON.stringify({
+const validPass1 = JSON.stringify({
   facts: [
-    {
-      content: 'User prefers dark mode',
-      importance: 0.6,
-      operation: 'add',
-      existing_lineage_id: null,
-      contradicts_fact_id: null,
-      entities: [{ name: 'User', type: 'person' }],
-      relationships: [
-        { source: 'User', target: 'dark mode', relation: 'prefers', edge_type: 'associative' },
-      ],
-    },
-    {
-      content: 'User works at Acme Corp',
-      importance: 0.8,
-      operation: 'add',
-      existing_lineage_id: null,
-      contradicts_fact_id: null,
-      entities: [
-        { name: 'Acme Corp', type: 'organization' },
-      ],
-      relationships: [
-        { source: 'user', target: 'acme corp', relation: 'works at', edge_type: 'associative' },
-      ],
-    },
+    { t: 'User prefers dark mode', i: 0.6 },
+    { t: 'User works at Acme Corp', i: 0.8 },
   ],
-  confidence: 0.85,
-  entities: [],
-  edges: [],
+});
+
+const validPass2 = JSON.stringify({
+  entities: [
+    { name: 'User', entity_type: 'person' },
+    { name: 'Acme Corp', entity_type: 'organization' },
+  ],
+  edges: [
+    { source: 'user', target: 'acme corp', relation: 'works_at' },
+  ],
 });
 
 // ---------------------------------------------------------------------------
-// Basic extraction
+// Basic extraction (two-pass)
 // ---------------------------------------------------------------------------
 
 describe('extractWithLLM – basic extraction', () => {
   it('extracts facts from valid JSON response', async () => {
-    const adapter = new MockLLMAdapter(validResponse);
+    const adapter = new TwoPassMockLLM(validPass1, validPass2);
     const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
     expect(result.facts).toHaveLength(2);
     expect(result.facts[0].content).toBe('User prefers dark mode');
@@ -74,7 +73,7 @@ describe('extractWithLLM – basic extraction', () => {
   });
 
   it('uses "conversation" as sourceType for all facts', async () => {
-    const adapter = new MockLLMAdapter(validResponse);
+    const adapter = new TwoPassMockLLM(validPass1, validPass2);
     const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
     for (const fact of result.facts) {
       expect(fact.sourceType).toBe('conversation');
@@ -82,31 +81,31 @@ describe('extractWithLLM – basic extraction', () => {
   });
 
   it('uses "text" as modality for all facts', async () => {
-    const adapter = new MockLLMAdapter(validResponse);
+    const adapter = new TwoPassMockLLM(validPass1, validPass2);
     const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
     for (const fact of result.facts) {
       expect(fact.modality).toBe('text');
     }
   });
 
-  it('sets confidence from top-level confidence field', async () => {
-    const adapter = new MockLLMAdapter(validResponse);
+  it('sets confidence to 0.8 (hardcoded in two-pass mode)', async () => {
+    const adapter = new TwoPassMockLLM(validPass1, validPass2);
     const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
-    expect(result.confidence).toBe(0.85);
+    expect(result.confidence).toBe(0.8);
     for (const fact of result.facts) {
-      expect(fact.confidence).toBe(0.85);
+      expect(fact.confidence).toBe(0.8);
     }
   });
 
-  it('sets importance from each fact', async () => {
-    const adapter = new MockLLMAdapter(validResponse);
+  it('sets importance from LLM-scored values', async () => {
+    const adapter = new TwoPassMockLLM(validPass1, validPass2);
     const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
     expect(result.facts[0].importance).toBe(0.6);
     expect(result.facts[1].importance).toBe(0.8);
   });
 
   it('sets tags to empty array for each fact', async () => {
-    const adapter = new MockLLMAdapter(validResponse);
+    const adapter = new TwoPassMockLLM(validPass1, validPass2);
     const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
     for (const fact of result.facts) {
       expect(Array.isArray(fact.tags)).toBe(true);
@@ -115,7 +114,7 @@ describe('extractWithLLM – basic extraction', () => {
 
   it('sets originalContent to the input string', async () => {
     const input = 'User input text here';
-    const adapter = new MockLLMAdapter(validResponse);
+    const adapter = new TwoPassMockLLM(validPass1, validPass2);
     const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, input);
     for (const fact of result.facts) {
       expect(fact.originalContent).toBe(input);
@@ -124,18 +123,18 @@ describe('extractWithLLM – basic extraction', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Entities
+// Entities (from Pass 2)
 // ---------------------------------------------------------------------------
 
 describe('extractWithLLM – entities', () => {
-  it('extracts entities from facts', async () => {
-    const adapter = new MockLLMAdapter(validResponse);
+  it('extracts entities from Pass 2 response', async () => {
+    const adapter = new TwoPassMockLLM(validPass1, validPass2);
     const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
     expect(result.entities.length).toBeGreaterThan(0);
   });
 
   it('entity canonical names are lowercase', async () => {
-    const adapter = new MockLLMAdapter(validResponse);
+    const adapter = new TwoPassMockLLM(validPass1, validPass2);
     const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
     for (const entity of result.entities) {
       expect(entity.canonicalName).toBe(entity.canonicalName.toLowerCase());
@@ -143,31 +142,22 @@ describe('extractWithLLM – entities', () => {
   });
 
   it('deduplicates entities by canonical name', async () => {
-    const responseWithDuplicates = JSON.stringify({
-      facts: [
-        {
-          content: 'User likes cats',
-          importance: 0.5,
-          entities: [{ name: 'User', type: 'person' }, { name: 'USER', type: 'person' }],
-          relationships: [],
-        },
-        {
-          content: 'User loves dogs',
-          importance: 0.5,
-          entities: [{ name: 'User', type: 'person' }],
-          relationships: [],
-        },
+    const pass2WithDuplicates = JSON.stringify({
+      entities: [
+        { name: 'User', entity_type: 'person' },
+        { name: 'USER', entity_type: 'person' },
+        { name: 'user', entity_type: 'person' },
       ],
-      confidence: 0.8,
+      edges: [],
     });
-    const adapter = new MockLLMAdapter(responseWithDuplicates);
+    const adapter = new TwoPassMockLLM(validPass1, pass2WithDuplicates);
     const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
     const userEntities = result.entities.filter((e) => e.canonicalName === 'user');
     expect(userEntities).toHaveLength(1);
   });
 
   it('entity has entityType from LLM response', async () => {
-    const adapter = new MockLLMAdapter(validResponse);
+    const adapter = new TwoPassMockLLM(validPass1, validPass2);
     const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
     const orgEntity = result.entities.find((e) => e.canonicalName === 'acme corp');
     expect(orgEntity?.entityType).toBe('organization');
@@ -175,18 +165,18 @@ describe('extractWithLLM – entities', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Edges
+// Edges (from Pass 2)
 // ---------------------------------------------------------------------------
 
 describe('extractWithLLM – edges', () => {
-  it('extracts edges/relationships from facts', async () => {
-    const adapter = new MockLLMAdapter(validResponse);
+  it('extracts edges from Pass 2 response', async () => {
+    const adapter = new TwoPassMockLLM(validPass1, validPass2);
     const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
     expect(result.edges.length).toBeGreaterThan(0);
   });
 
   it('edge sourceName and targetName are lowercase', async () => {
-    const adapter = new MockLLMAdapter(validResponse);
+    const adapter = new TwoPassMockLLM(validPass1, validPass2);
     const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
     for (const edge of result.edges) {
       expect(edge.sourceName).toBe(edge.sourceName.toLowerCase());
@@ -195,147 +185,23 @@ describe('extractWithLLM – edges', () => {
   });
 
   it('invalid edge_type defaults to "associative"', async () => {
-    const responseWithInvalidEdge = JSON.stringify({
-      facts: [
-        {
-          content: 'User likes pizza',
-          importance: 0.5,
-          entities: [],
-          relationships: [
-            { source: 'user', target: 'pizza', relation: 'likes', edge_type: 'unknown_type' },
-          ],
-        },
-      ],
-      confidence: 0.7,
+    const pass2 = JSON.stringify({
+      entities: [{ name: 'User', entity_type: 'person' }, { name: 'Pizza', entity_type: 'concept' }],
+      edges: [{ source: 'user', target: 'pizza', relation: 'likes', edge_type: 'unknown_type' }],
     });
-    const adapter = new MockLLMAdapter(responseWithInvalidEdge);
+    const adapter = new TwoPassMockLLM(validPass1, pass2);
     const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
     expect(result.edges[0].edgeType).toBe('associative');
   });
 
   it('valid edge_type is preserved', async () => {
-    const responseWithCausal = JSON.stringify({
-      facts: [
-        {
-          content: 'Smoking causes cancer',
-          importance: 0.9,
-          entities: [],
-          relationships: [
-            { source: 'smoking', target: 'cancer', relation: 'causes', edge_type: 'causal' },
-          ],
-        },
-      ],
-      confidence: 0.9,
+    const pass2 = JSON.stringify({
+      entities: [{ name: 'Smoking', entity_type: 'concept' }, { name: 'Cancer', entity_type: 'concept' }],
+      edges: [{ source: 'smoking', target: 'cancer', relation: 'causes', edge_type: 'causal' }],
     });
-    const adapter = new MockLLMAdapter(responseWithCausal);
+    const adapter = new TwoPassMockLLM(validPass1, pass2);
     const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
     expect(result.edges[0].edgeType).toBe('causal');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Operations
-// ---------------------------------------------------------------------------
-
-describe('extractWithLLM – operations', () => {
-  it('valid operation is preserved', async () => {
-    const adapter = new MockLLMAdapter(validResponse);
-    const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
-    expect(result.facts[0].operation).toBe('add');
-  });
-
-  it('invalid operation is set to undefined', async () => {
-    const responseWithInvalidOp = JSON.stringify({
-      facts: [
-        {
-          content: 'User prefers light mode',
-          importance: 0.6,
-          operation: 'create', // invalid operation
-          entities: [],
-          relationships: [],
-        },
-      ],
-      confidence: 0.8,
-    });
-    const adapter = new MockLLMAdapter(responseWithInvalidOp);
-    const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
-    expect(result.facts[0].operation).toBeUndefined();
-  });
-
-  it('sets existingLineageId from existing_lineage_id', async () => {
-    const responseWithLineage = JSON.stringify({
-      facts: [
-        {
-          content: 'User now prefers dark mode',
-          importance: 0.6,
-          operation: 'update',
-          existing_lineage_id: 'lin-abc',
-          contradicts_fact_id: null,
-          entities: [],
-          relationships: [],
-        },
-      ],
-      confidence: 0.8,
-    });
-    const adapter = new MockLLMAdapter(responseWithLineage);
-    const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
-    expect(result.facts[0].existingLineageId).toBe('lin-abc');
-  });
-
-  it('sets contradictsFactId from contradicts_fact_id', async () => {
-    const responseWithContradict = JSON.stringify({
-      facts: [
-        {
-          content: 'User prefers light mode',
-          importance: 0.6,
-          operation: 'contradict',
-          existing_lineage_id: null,
-          contradicts_fact_id: 'fact-xyz',
-          entities: [],
-          relationships: [],
-        },
-      ],
-      confidence: 0.8,
-    });
-    const adapter = new MockLLMAdapter(responseWithContradict);
-    const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
-    expect(result.facts[0].contradictsFactId).toBe('fact-xyz');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Importance clamping
-// ---------------------------------------------------------------------------
-
-describe('extractWithLLM – importance clamping', () => {
-  it('clamps importance above 1 to 1', async () => {
-    const responseWithHighImportance = JSON.stringify({
-      facts: [{ content: 'User is important', importance: 1.5, entities: [], relationships: [] }],
-      confidence: 0.8,
-    });
-    const adapter = new MockLLMAdapter(responseWithHighImportance);
-    const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
-    expect(result.facts[0].importance).toBe(1);
-  });
-
-  it('clamps importance below 0 to 0', async () => {
-    const responseWithNegImportance = JSON.stringify({
-      facts: [{ content: 'User is here', importance: -0.5, entities: [], relationships: [] }],
-      confidence: 0.8,
-    });
-    const adapter = new MockLLMAdapter(responseWithNegImportance);
-    const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
-    expect(result.facts[0].importance).toBe(0);
-  });
-
-  it('defaults importance to 0.5 when missing', async () => {
-    const responseNoImportance = JSON.stringify({
-      facts: [{ content: 'User is here', entities: [], relationships: [] }],
-      confidence: 0.8,
-    });
-    const adapter = new MockLLMAdapter(responseNoImportance);
-    const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
-    expect(result.facts[0].importance).toBe(0.5);
   });
 });
 
@@ -345,40 +211,42 @@ describe('extractWithLLM – importance clamping', () => {
 
 describe('extractWithLLM – empty/missing facts', () => {
   it('handles empty facts array', async () => {
-    const emptyResponse = JSON.stringify({ facts: [], confidence: 0.8 });
-    const adapter = new MockLLMAdapter(emptyResponse);
+    const adapter = new TwoPassMockLLM(JSON.stringify({ facts: [] }));
     const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
     expect(result.facts).toHaveLength(0);
     expect(result.entities).toHaveLength(0);
     expect(result.edges).toHaveLength(0);
   });
 
-  it('ignores facts with empty content', async () => {
-    const responseWithEmpty = JSON.stringify({
+  it('handles mixed formats: objects with t/i, plain strings, and invalid values', async () => {
+    const response = JSON.stringify({
       facts: [
-        { content: '', importance: 0.5, entities: [], relationships: [] },
-        { content: '   ', importance: 0.5, entities: [], relationships: [] },
-        { content: 'User likes cats', importance: 0.5, entities: [], relationships: [] },
+        { t: 'Object fact with importance', i: 0.9 },
+        'Valid string fact',
+        42,
+        null,
+        { text: 'Alt format fact', importance: 0.7 },
       ],
-      confidence: 0.8,
     });
-    const adapter = new MockLLMAdapter(responseWithEmpty);
+    const adapter = new TwoPassMockLLM(response);
+    const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
+    expect(result.facts).toHaveLength(3);
+    expect(result.facts[0].content).toBe('Object fact with importance');
+    expect(result.facts[0].importance).toBe(0.9);
+    expect(result.facts[1].content).toBe('Valid string fact');
+    expect(result.facts[1].importance).toBe(0.5);
+    expect(result.facts[2].content).toBe('Alt format fact');
+    expect(result.facts[2].importance).toBe(0.7);
+  });
+
+  it('ignores empty string facts and empty object facts', async () => {
+    const response = JSON.stringify({
+      facts: ['', '   ', { t: '', i: 0.5 }, { t: 'User likes cats', i: 0.6 }],
+    });
+    const adapter = new TwoPassMockLLM(response);
     const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
     expect(result.facts).toHaveLength(1);
     expect(result.facts[0].content).toBe('User likes cats');
-  });
-
-  it('ignores facts with missing content field', async () => {
-    const responseWithMissing = JSON.stringify({
-      facts: [
-        { importance: 0.5, entities: [], relationships: [] },
-        { content: 'Valid fact', importance: 0.5, entities: [], relationships: [] },
-      ],
-      confidence: 0.8,
-    });
-    const adapter = new MockLLMAdapter(responseWithMissing);
-    const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
-    expect(result.facts).toHaveLength(1);
   });
 });
 
@@ -387,27 +255,28 @@ describe('extractWithLLM – empty/missing facts', () => {
 // ---------------------------------------------------------------------------
 
 describe('extractWithLLM – metadata', () => {
-  it('reports correct token usage from LLM response', async () => {
-    const adapter = new MockLLMAdapter(validResponse);
+  it('accumulates token usage from both passes', async () => {
+    const adapter = new TwoPassMockLLM(validPass1, validPass2);
     const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
-    expect(result.tokensInput).toBe(10);
-    expect(result.tokensOutput).toBe(20);
+    // Each pass returns tokensInput: 10, tokensOutput: 20
+    expect(result.tokensInput).toBe(20);
+    expect(result.tokensOutput).toBe(40);
   });
 
-  it('reports model from LLM response', async () => {
-    const adapter = new MockLLMAdapter(validResponse);
+  it('reports model from LLM adapter', async () => {
+    const adapter = new TwoPassMockLLM(validPass1, validPass2);
     const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
     expect(result.model).toBe('mock-model');
   });
 
   it('sets tier correctly for cheap_llm', async () => {
-    const adapter = new MockLLMAdapter(validResponse);
+    const adapter = new TwoPassMockLLM(validPass1, validPass2);
     const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
     expect(result.tier).toBe('cheap_llm');
   });
 
   it('sets tier correctly for smart_llm', async () => {
-    const adapter = new MockLLMAdapter(validResponse);
+    const adapter = new TwoPassMockLLM(validPass1, validPass2);
     const result = await extractWithLLM({ llm: adapter, tier: 'smart_llm' }, 'some input');
     expect(result.tier).toBe('smart_llm');
   });
@@ -427,8 +296,8 @@ describe('extractWithLLM – error handling', () => {
     expect(result.confidence).toBe(0);
   });
 
-  it('handles malformed JSON — returns empty result after retry', async () => {
-    const adapter = new MockLLMAdapter('this is not JSON {{{');
+  it('handles malformed JSON — returns empty result', async () => {
+    const adapter = new TwoPassMockLLM('this is not JSON {{{');
     const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
     expect(result.facts).toHaveLength(0);
     expect(result.entities).toHaveLength(0);
@@ -443,32 +312,38 @@ describe('extractWithLLM – error handling', () => {
   });
 
   it('handles missing facts field gracefully (non-array)', async () => {
-    const responseNoFacts = JSON.stringify({ confidence: 0.8 });
-    const adapter = new MockLLMAdapter(responseNoFacts);
+    const adapter = new TwoPassMockLLM(JSON.stringify({ confidence: 0.8 }));
     const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
     expect(result.facts).toHaveLength(0);
   });
 
   it('handles facts field being a non-array gracefully', async () => {
-    const responseBadFacts = JSON.stringify({ facts: 'not an array', confidence: 0.8 });
-    const adapter = new MockLLMAdapter(responseBadFacts);
+    const adapter = new TwoPassMockLLM(JSON.stringify({ facts: 'not an array' }));
     const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
     expect(result.facts).toHaveLength(0);
+  });
+
+  it('still returns facts when Pass 2 (graph) fails', async () => {
+    const adapter = new TwoPassMockLLM(validPass1, 'invalid json for graph');
+    const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
+    expect(result.facts).toHaveLength(2);
+    expect(result.entities).toHaveLength(0);
+    expect(result.edges).toHaveLength(0);
   });
 });
 
 // ---------------------------------------------------------------------------
-// existingFacts — passed to prompt builder
+// existingFacts — appended to Pass 1 prompt
 // ---------------------------------------------------------------------------
 
 describe('extractWithLLM – existingFacts passed to prompt builder', () => {
-  it('passes existingFacts to prompt builder (visible in user message)', async () => {
+  it('passes existingFacts to Pass 1 prompt (visible in user message)', async () => {
     let capturedMessages: LLMMessage[] | null = null;
     const capturingAdapter: LLMAdapter = {
       model: 'capture-model',
       async complete(messages: LLMMessage[]): Promise<LLMResponse> {
-        capturedMessages = messages;
-        return { content: JSON.stringify({ facts: [], confidence: 0.8 }), tokensInput: 5, tokensOutput: 5, model: 'capture-model' };
+        if (!capturedMessages) capturedMessages = messages; // capture first call (Pass 1)
+        return { content: JSON.stringify({ facts: [] }), tokensInput: 5, tokensOutput: 5, model: 'capture-model' };
       },
     };
 
@@ -488,7 +363,7 @@ describe('extractWithLLM – existingFacts passed to prompt builder', () => {
   });
 
   it('works without existingFacts (undefined)', async () => {
-    const adapter = new MockLLMAdapter(JSON.stringify({ facts: [], confidence: 0.8 }));
+    const adapter = new TwoPassMockLLM(JSON.stringify({ facts: [] }));
     const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
     expect(result.facts).toHaveLength(0);
   });
@@ -498,8 +373,8 @@ describe('extractWithLLM – existingFacts passed to prompt builder', () => {
     const capturingAdapter: LLMAdapter = {
       model: 'capture-model',
       async complete(messages: LLMMessage[]): Promise<LLMResponse> {
-        capturedMessages = messages;
-        return { content: JSON.stringify({ facts: [], confidence: 0.8 }), tokensInput: 5, tokensOutput: 5, model: 'capture-model' };
+        if (!capturedMessages) capturedMessages = messages;
+        return { content: JSON.stringify({ facts: [] }), tokensInput: 5, tokensOutput: 5, model: 'capture-model' };
       },
     };
 
@@ -507,21 +382,5 @@ describe('extractWithLLM – existingFacts passed to prompt builder', () => {
 
     const userMessage = capturedMessages![1];
     expect(userMessage.content).not.toContain('EXISTING FACTS');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Default confidence when missing
-// ---------------------------------------------------------------------------
-
-describe('extractWithLLM – default confidence', () => {
-  it('defaults confidence to 0.7 when not a number', async () => {
-    const responseNoConf = JSON.stringify({
-      facts: [{ content: 'User likes tea', importance: 0.5, entities: [], relationships: [] }],
-    });
-    const adapter = new MockLLMAdapter(responseNoConf);
-    const result = await extractWithLLM({ llm: adapter, tier: 'cheap_llm' }, 'some input');
-    expect(result.confidence).toBe(0.7);
-    expect(result.facts[0].confidence).toBe(0.7);
   });
 });

@@ -278,7 +278,11 @@ function makeMockEmbedding(overrides: Partial<EmbeddingAdapter> = {}): Embedding
   } as EmbeddingAdapter;
 }
 
-/** Build LLM JSON response with the given facts array */
+/**
+ * Build LLM JSON response for the two-pass extraction architecture.
+ * Returns a Pass 1 response: {"facts": ["string1", "string2"]}
+ * The mock LLM will alternate between Pass 1 and Pass 2 responses.
+ */
 function makeLLMExtractionResponse(
   facts: Array<{
     content: string;
@@ -288,32 +292,40 @@ function makeLLMExtractionResponse(
     contradicts_fact_id?: string | null;
     entities?: Array<{ name: string; type: string }>;
   }>,
-  confidence = 0.85,
+  _confidence = 0.85, // ignored in two-pass mode (hardcoded to 0.8)
 ): string {
+  // Return Pass 1 format (simple string facts)
   return JSON.stringify({
-    facts: facts.map(f => ({
-      content: f.content,
-      importance: f.importance ?? 0.7,
-      operation: f.operation ?? 'add',
-      existing_lineage_id: f.existing_lineage_id ?? null,
-      contradicts_fact_id: f.contradicts_fact_id ?? null,
-      entities: f.entities ?? [],
-      relationships: [],
-    })),
-    confidence,
-    entities: [],
-    edges: [],
+    facts: facts.map(f => f.content),
   });
 }
 
-function makeMockLLM(responseContent: string): LLMAdapter {
+/** Pass 2 graph response (entities + edges) */
+function makeGraphResponse(entities: Array<{ name: string; entity_type: string }> = [], edges: unknown[] = []): string {
+  return JSON.stringify({ entities, edges });
+}
+
+/**
+ * Create a mock LLM that handles two-pass extraction.
+ * Call 1 (Pass 1 - facts): returns pass1Content
+ * Call 2 (Pass 2 - graph): returns pass2Content (default: empty graph)
+ * Subsequent calls (dedup etc): returns pass1Content
+ */
+function makeMockLLM(pass1Content: string, pass2Content?: string): LLMAdapter {
+  let callCount = 0;
+  const defaultGraph = JSON.stringify({ entities: [], edges: [] });
   return {
-    complete: vi.fn(async (): Promise<LLMResponse> => ({
-      content: responseContent,
-      tokensInput: 50,
-      tokensOutput: 30,
-      model: 'test-llm-model',
-    })),
+    complete: vi.fn(async (): Promise<LLMResponse> => {
+      callCount++;
+      // Call 1 = fact extraction, Call 2 = graph extraction
+      const content = callCount === 2 ? (pass2Content ?? defaultGraph) : pass1Content;
+      return {
+        content,
+        tokensInput: 50,
+        tokensOutput: 30,
+        model: 'test-llm-model',
+      };
+    }),
     model: 'test-llm-model',
   };
 }
@@ -769,26 +781,51 @@ describe('runExtractionPipeline – fact versioning', () => {
 
     const invalidateFact = vi.fn(async () => {});
 
+    // vectorSearch returns a similar fact so dedup is triggered
     const storage = makeMockStorage({
       invalidateFact,
       getFactsByLineage: vi.fn(async () => [
         makeStoredFact({ id: oldFactId, lineageId: existingLineageId, validUntil: null }),
       ]),
+      vectorSearch: vi.fn(async () => [
+        {
+          fact: makeStoredFact({ id: oldFactId, lineageId: existingLineageId }),
+          similarity: 0.95,
+        },
+      ]),
     });
 
-    const llmResponse = makeLLMExtractionResponse([
-      {
-        content: "User's name is Alice Smith",
-        importance: 0.9,
-        operation: 'update',
-        existing_lineage_id: existingLineageId,
-      },
-    ]);
+    // Build a multi-response mock that handles:
+    // Call 1 (Pass 1 - fact extraction): return the fact string
+    // Call 2 (Pass 2 - graph): return empty graph
+    // Call 3 (dedup classification): return update with lineageId
+    // Call 4+ (scratchpad etc): return empty
+    let callCount = 0;
+    const cheapLLM: LLMAdapter = {
+      complete: vi.fn(async (): Promise<LLMResponse> => {
+        callCount++;
+        let content: string;
+        if (callCount === 1) {
+          content = JSON.stringify({ facts: ["User's name is Alice Smith"] });
+        } else if (callCount === 2) {
+          content = JSON.stringify({ entities: [], edges: [] });
+        } else if (callCount === 3) {
+          content = JSON.stringify({
+            operation: 'update',
+            existing_lineage_id: existingLineageId,
+          });
+        } else {
+          content = JSON.stringify({ facts: [] });
+        }
+        return { content, tokensInput: 50, tokensOutput: 30, model: 'test-llm' };
+      }),
+      model: 'test-llm',
+    };
 
     const config: PipelineConfig = {
       storage,
       embedding: makeMockEmbedding(),
-      cheapLLM: makeMockLLM(llmResponse),
+      cheapLLM,
       embeddingModel: 'test-model',
       embeddingDim: 3,
       extractionTier: 'cheap_only',
@@ -811,21 +848,40 @@ describe('runExtractionPipeline – fact versioning', () => {
         return makeStoredFact({ id: fact.id, lineageId: fact.lineageId });
       }),
       getFactsByLineage: vi.fn(async () => []),
+      vectorSearch: vi.fn(async () => [
+        {
+          fact: makeStoredFact({ id: 'old-fact-id', lineageId: existingLineageId }),
+          similarity: 0.95,
+        },
+      ]),
     });
 
-    const llmResponse = makeLLMExtractionResponse([
-      {
-        content: 'Updated fact content',
-        importance: 0.8,
-        operation: 'update',
-        existing_lineage_id: existingLineageId,
-      },
-    ]);
+    let callCount = 0;
+    const cheapLLM: LLMAdapter = {
+      complete: vi.fn(async (): Promise<LLMResponse> => {
+        callCount++;
+        let content: string;
+        if (callCount === 1) {
+          content = JSON.stringify({ facts: ['Updated fact content'] });
+        } else if (callCount === 2) {
+          content = JSON.stringify({ entities: [], edges: [] });
+        } else if (callCount === 3) {
+          content = JSON.stringify({
+            operation: 'update',
+            existing_lineage_id: existingLineageId,
+          });
+        } else {
+          content = JSON.stringify({ facts: [] });
+        }
+        return { content, tokensInput: 50, tokensOutput: 30, model: 'test-llm' };
+      }),
+      model: 'test-llm',
+    };
 
     const config: PipelineConfig = {
       storage,
       embedding: makeMockEmbedding(),
-      cheapLLM: makeMockLLM(llmResponse),
+      cheapLLM,
       embeddingModel: 'test-model',
       embeddingDim: 3,
       extractionTier: 'cheap_only',
@@ -875,18 +931,49 @@ describe('runExtractionPipeline – noop facts', () => {
     expect(createFact).not.toHaveBeenCalled();
   });
 
-  it('skips noop facts from LLM in auto mode', async () => {
+  it('skips noop facts when dedup classifies as noop', async () => {
     const createFact = vi.fn(async () => makeStoredFact());
-    const storage = makeMockStorage({ createFact });
+    const storage = makeMockStorage({
+      createFact,
+      vectorSearch: vi.fn(async () => [
+        {
+          fact: makeStoredFact({ content: 'User likes cats' }),
+          similarity: 0.95,
+        },
+      ]),
+    });
 
-    const llmResponse = makeLLMExtractionResponse([
-      { content: 'User likes cats', importance: 0.6, operation: 'noop' },
-    ]);
+    // Multi-response mock:
+    // Call 1 (Pass 1): return fact string
+    // Call 2 (Pass 2): return empty graph
+    // Call 3 (dedup): return noop
+    // Call 4+ (scratchpad): return empty
+    let callCount = 0;
+    const cheapLLM: LLMAdapter = {
+      complete: vi.fn(async (): Promise<LLMResponse> => {
+        callCount++;
+        let content: string;
+        if (callCount === 1) {
+          content = JSON.stringify({ facts: ['User likes cats'] });
+        } else if (callCount === 2) {
+          content = JSON.stringify({ entities: [], edges: [] });
+        } else if (callCount === 3) {
+          content = JSON.stringify({
+            operation: 'noop',
+            existing_lineage_id: 'lineage-existing',
+          });
+        } else {
+          content = JSON.stringify({ facts: [] });
+        }
+        return { content, tokensInput: 50, tokensOutput: 30, model: 'test-llm' };
+      }),
+      model: 'test-llm',
+    };
 
     const config: PipelineConfig = {
       storage,
       embedding: makeMockEmbedding(),
-      cheapLLM: makeMockLLM(llmResponse),
+      cheapLLM,
       embeddingModel: 'test-model',
       embeddingDim: 3,
       extractionTier: 'cheap_only',
@@ -898,7 +985,7 @@ describe('runExtractionPipeline – noop facts', () => {
       makeRawTextInput('The weather is nice today.'),
     );
 
-    // No facts created because LLM returned noop and heuristic found nothing
+    // No facts created because dedup classified as noop and heuristic found nothing
     expect(result.factsCreated).toBe(0);
     expect(createFact).not.toHaveBeenCalled();
   });
@@ -909,19 +996,25 @@ describe('runExtractionPipeline – noop facts', () => {
 // ---------------------------------------------------------------------------
 
 describe('runExtractionPipeline – smart LLM escalation', () => {
-  it('escalates to smartLLM when cheap LLM confidence < 0.6 in auto mode', async () => {
-    const smartLLMComplete = vi.fn(async (): Promise<LLMResponse> => ({
-      content: makeLLMExtractionResponse(
-        [{ content: 'User is a senior engineer', importance: 0.85 }],
-        0.95,
-      ),
-      tokensInput: 100,
-      tokensOutput: 60,
-      model: 'smart-llm-model',
-    }));
+  it('escalates to smartLLM when cheap LLM returns no facts (confidence=0) in auto mode', async () => {
+    // Smart LLM call count tracker — needs to handle two-pass (Pass 1 + Pass 2)
+    let smartCallCount = 0;
+    const smartLLMComplete = vi.fn(async (): Promise<LLMResponse> => {
+      smartCallCount++;
+      const content = smartCallCount === 1
+        ? JSON.stringify({ facts: ['User is a senior engineer'] })
+        : JSON.stringify({ entities: [], edges: [] });
+      return {
+        content,
+        tokensInput: 100,
+        tokensOutput: 60,
+        model: 'smart-llm-model',
+      };
+    });
 
+    // Cheap LLM returns empty facts → confidence=0 → triggers escalation
     const cheapLLMComplete = vi.fn(async (): Promise<LLMResponse> => ({
-      content: makeLLMExtractionResponse([], 0.3), // low confidence → escalate
+      content: JSON.stringify({ facts: [] }),
       tokensInput: 30,
       tokensOutput: 20,
       model: 'cheap-llm-model',
@@ -944,22 +1037,28 @@ describe('runExtractionPipeline – smart LLM escalation', () => {
 
     expect(smartLLMComplete).toHaveBeenCalled();
     // Tokens from both cheap and smart LLM should be summed
-    expect(result.costTokensInput).toBeGreaterThanOrEqual(130); // 30 + 100
-    expect(result.costTokensOutput).toBeGreaterThanOrEqual(80); // 20 + 60
+    // cheap: 30+20, smart: 2 calls × (100+60) = 200+120
+    expect(result.costTokensInput).toBeGreaterThanOrEqual(130); // 30 + 100+
+    expect(result.costTokensOutput).toBeGreaterThanOrEqual(80); // 20 + 60+
   });
 
-  it('does not escalate when cheap LLM confidence >= 0.6', async () => {
+  it('does not escalate when cheap LLM returns facts (confidence=0.8)', async () => {
     const smartLLMComplete = vi.fn();
 
-    const cheapLLMComplete = vi.fn(async (): Promise<LLMResponse> => ({
-      content: makeLLMExtractionResponse(
-        [{ content: "User's name is Bob" }],
-        0.8, // high confidence → no escalation
-      ),
-      tokensInput: 50,
-      tokensOutput: 30,
-      model: 'cheap-llm',
-    }));
+    // Cheap LLM handles two-pass: Pass 1 returns facts, Pass 2 returns graph
+    let cheapCallCount = 0;
+    const cheapLLMComplete = vi.fn(async (): Promise<LLMResponse> => {
+      cheapCallCount++;
+      const content = cheapCallCount === 1
+        ? JSON.stringify({ facts: ["User's name is Bob"] })
+        : JSON.stringify({ entities: [], edges: [] });
+      return {
+        content,
+        tokensInput: 50,
+        tokensOutput: 30,
+        model: 'cheap-llm',
+      };
+    });
 
     const config: PipelineConfig = {
       storage: makeMockStorage(),

@@ -1,5 +1,6 @@
 import type { StorageAdapter } from '../adapters/storage.js';
 import type { LLMAdapter } from '../adapters/llm.js';
+import type { Scope } from '../config.js';
 
 const SCRATCHPAD_MAX_CHARS = 5000;
 const SCRATCHPAD_COMPRESSED_CHARS = 2500;
@@ -11,7 +12,7 @@ const SCRATCHPAD_COMPRESSED_CHARS = 2500;
 export async function getScratchpad(
   storage: StorageAdapter,
   tenantId: string,
-  scope: string,
+  scope: Scope,
   scopeId: string,
 ): Promise<string> {
   const facts = await storage.getFactsByScope(tenantId, scope, scopeId, { limit: 100 });
@@ -27,7 +28,7 @@ export async function updateScratchpad(
   storage: StorageAdapter,
   llm: LLMAdapter,
   tenantId: string,
-  scope: string,
+  scope: Scope,
   scopeId: string,
   newFacts: string[],
 ): Promise<void> {
@@ -113,7 +114,7 @@ export async function getRelevantScratchpad(
   storage: StorageAdapter,
   llm: LLMAdapter,
   tenantId: string,
-  scope: string,
+  scope: Scope,
   scopeId: string,
   query: string,
 ): Promise<string> {

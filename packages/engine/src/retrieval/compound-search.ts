@@ -24,7 +24,7 @@ export async function compoundSearchSignal(
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
     .filter(w => w.length >= 3 && !stopWords.has(w))
-    .join(' ');
+    .join(' | ');
 
   const results = await storage.compoundSearch({
     embedding: queryEmbedding,

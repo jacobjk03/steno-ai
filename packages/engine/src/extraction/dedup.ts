@@ -73,12 +73,16 @@ async function classifyWithLLM(
   const messages: LLMMessage[] = [
     {
       role: 'system',
-      content: `You are a memory deduplication classifier. Compare a NEW fact against EXISTING facts and classify the relationship.
+      content: `You are a memory deduplication classifier. Compare a NEW fact against EXISTING facts.
 
-Return JSON with:
-- operation: "add" (genuinely new), "update" (modifies existing), "noop" (already stored), "contradict" (conflicts with existing)
-- existing_lineage_id: lineage_id of the matching fact (for update/noop/contradict)
-- contradicts_fact_id: id of the contradicted fact (only for contradict)
+RULES:
+- "noop" if the new fact says the SAME thing as an existing fact (even with different wording). Be AGGRESSIVE about noop — "User's name is Caroline" and "User is called Caroline" are NOOP.
+- "update" if the new fact adds detail or changes a value ("User likes cats" → "User loves cats and has 3")
+- "contradict" if the new fact directly conflicts ("User likes cats" vs "User hates cats")
+- "add" ONLY if genuinely new information not covered by ANY existing fact
+
+Return JSON:
+{"operation": "add|update|noop|contradict", "existing_lineage_id": "...", "contradicts_fact_id": "..."}
 
 Return ONLY valid JSON.`,
     },

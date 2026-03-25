@@ -84,7 +84,8 @@ export async function graphSearch(
         }
       }
     }
-  } catch {
+  } catch (err) {
+    console.error('[steno-graph] Batch entity lookup failed, falling back to sequential:', err instanceof Error ? err.message : err);
     // Fallback: sequential lookups if batch fails
     const userEntity = await storage.findEntityByCanonicalName(tenantId, 'user', 'person');
     if (userEntity) seedEntityIds.push(userEntity.id);
@@ -186,7 +187,8 @@ export async function graphSearch(
           });
         }
       }
-    } catch {
+    } catch (err) {
+      console.error('[steno-graph] Batch getFactsForEntities failed, falling back to sequential:', err instanceof Error ? err.message : err);
       // Fallback to sequential if batch not supported
       for (const entity of traversalResult.entities) {
         const hopDepth = entityHopMap.get(entity.id) ?? maxDepth;
@@ -201,7 +203,7 @@ export async function graphSearch(
               });
             }
           }
-        } catch { /* skip entity */ }
+        } catch (err) { console.error('[steno-graph] getFactsForEntity failed for entity:', entity.id, err instanceof Error ? err.message : err); }
       }
     }
   }

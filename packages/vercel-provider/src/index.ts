@@ -110,13 +110,18 @@ export function stenoMemory(
         // Fetch user profile + relevant memories in parallel
         // TODO: Replace raw HTTP call with steno.profile() once SDK supports it
         const [profileResult, searchResult] = await Promise.allSettled([
-          (steno as any).memory.http.request(
-            'GET',
-            `/v1/profile/${encodeURIComponent(options.userId)}`,
-          ) as Promise<{
-            static?: Array<{ category?: string; content: string }>;
-            dynamic?: Array<{ content: string }>;
-          }>,
+          // Wrap in Promise.resolve().then() so synchronous access errors
+          // (e.g. missing .memory.http) become rejections, not thrown exceptions
+          Promise.resolve().then(
+            () =>
+              (steno as any).memory.http.request(
+                'GET',
+                `/v1/profile/${encodeURIComponent(options.userId)}`,
+              ) as Promise<{
+                static?: Array<{ category?: string; content: string }>;
+                dynamic?: Array<{ content: string }>;
+              }>,
+          ),
           steno.search(options.userId, queryText, maxMemories),
         ]);
 

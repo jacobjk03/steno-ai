@@ -327,87 +327,9 @@ async function executeExtraction(
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Store raw conversation chunks alongside extracted facts (hybrid memory)
-  // ---------------------------------------------------------------------------
-  if (input.inputType === 'conversation' && typeof input.data === 'object' && input.data !== null) {
-    const messages = (input.data as Record<string, unknown>).messages as Array<{ role: string; content: string }> | undefined;
-    if (messages && Array.isArray(messages)) {
-      // Filter valid messages
-      const validMsgs = messages.filter(msg => msg.content && msg.content.trim().length >= 10);
-
-      // ── BATCH EMBED all chunks at once ──
-      const chunkTexts = validMsgs.map(msg => msg.content);
-      const chunkEmbeddings = chunkTexts.length > 0 ? await config.embedding.embedBatch(chunkTexts) : [];
-
-      for (let ci = 0; ci < validMsgs.length; ci++) {
-        const msg = validMsgs[ci]!;
-        const chunkId = crypto.randomUUID();
-        const chunkLineageId = crypto.randomUUID();
-
-        await config.storage.createFact({
-          id: chunkId,
-          lineageId: chunkLineageId,
-          tenantId: input.tenantId,
-          scope: input.scope,
-          scopeId: input.scopeId,
-          sessionId: input.sessionId,
-          content: `${msg.role}: ${msg.content}`,
-          embeddingModel: config.embeddingModel,
-          embeddingDim: config.embeddingDim,
-          embedding: chunkEmbeddings[ci] ?? [],
-          importance: 0.3,
-          confidence: 1.0,
-          operation: 'create',
-          sourceType: 'conversation',
-          originalContent: msg.content,
-          extractionId,
-          extractionTier: 'heuristic',
-          modality: 'document',
-          tags: ['raw_chunk', msg.role],
-          metadata: { role: msg.role },
-          contradictionStatus: 'none',
-        });
-        factsCreated++;
-      }
-    }
-  } else if (typeof input.data === 'string' && input.data.length > 50) {
-    const paragraphs = input.data.split(/\n\n+/).filter(p => p.trim().length > 50);
-
-    // ── BATCH EMBED all paragraphs at once ──
-    const paraEmbeddings = paragraphs.length > 0 ? await config.embedding.embedBatch(paragraphs) : [];
-
-    for (let pi = 0; pi < paragraphs.length; pi++) {
-      const para = paragraphs[pi]!;
-      const chunkId = crypto.randomUUID();
-      const chunkLineageId = crypto.randomUUID();
-
-      await config.storage.createFact({
-        id: chunkId,
-        lineageId: chunkLineageId,
-        tenantId: input.tenantId,
-        scope: input.scope,
-        scopeId: input.scopeId,
-        sessionId: input.sessionId,
-        content: para,
-        embeddingModel: config.embeddingModel,
-        embeddingDim: config.embeddingDim,
-        embedding: paraEmbeddings[pi] ?? [],
-        importance: 0.3,
-        confidence: 1.0,
-        operation: 'create',
-        sourceType: (input.inputType === 'conversation' || input.inputType === 'document' || input.inputType === 'url' || input.inputType === 'raw_text' ? input.inputType : 'raw_text') as SourceType,
-        originalContent: para,
-        extractionId,
-        extractionTier: 'heuristic',
-        modality: 'document',
-        tags: ['raw_chunk'],
-        metadata: {},
-        contradictionStatus: 'none',
-      });
-      factsCreated++;
-    }
-  }
+  // Raw chunk storage removed — raw chunks diluted search results and the compound
+  // search SQL already excludes raw_chunk tagged facts. Extracted atomic facts are
+  // sufficient for retrieval quality.
 
   // Create edges ONCE after all facts are persisted.
   console.log(`[steno] Edge creation: ${mergedEdges.length} edges to persist, firstFactId=${firstFactId ? 'set' : 'MISSING'}`);

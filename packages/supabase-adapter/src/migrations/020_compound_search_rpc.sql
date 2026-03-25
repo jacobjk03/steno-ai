@@ -85,7 +85,7 @@ BEGIN
         f.contradicts_id, f.source_type, f.source_ref, f.confidence,
         f.original_content, f.extraction_id, f.extraction_tier,
         f.modality, f.tags, f.metadata, f.created_at,
-        ts_rank(f.search_vector, plainto_tsquery('english', search_query))::float AS relevance_score
+        ts_rank(f.search_vector, to_tsquery('english', search_query))::float AS relevance_score
     FROM facts f
     WHERE f.tenant_id = match_tenant_id
       AND f.scope = match_scope
@@ -93,7 +93,7 @@ BEGIN
       AND f.valid_until IS NULL
       AND f.source_type != 'api'
       AND NOT ('raw_chunk' = ANY(f.tags))
-      AND f.search_vector @@ plainto_tsquery('english', search_query)
+      AND f.search_vector @@ to_tsquery('english', search_query)
     ORDER BY relevance_score DESC
     LIMIT match_count);
 END;

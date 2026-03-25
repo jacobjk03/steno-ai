@@ -26,6 +26,9 @@ vi.mock('../../src/retrieval/fusion.js', () => ({
 vi.mock('../../src/retrieval/contradiction-surfacer.js', () => ({
   surfaceContradictions: vi.fn(),
 }));
+vi.mock('../../src/retrieval/reranker.js', () => ({
+  rerank: vi.fn().mockImplementation(async (_emb: unknown, _query: string, results: unknown[]) => results),
+}));
 vi.mock('../../src/feedback/tracker.js', () => ({
   recordAccesses: vi.fn(),
 }));

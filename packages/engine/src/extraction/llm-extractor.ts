@@ -33,6 +33,7 @@ export async function extractWithLLM(
   }
 
   let factStrings: string[] = [];
+  let factEntries: Array<{ text: string; importance: number }> = [];
   try {
     const factResponse = await config.llm.complete(factMessages, { temperature: 0, responseFormat: 'json' });
     totalTokensIn += factResponse.tokensInput;
@@ -40,10 +41,18 @@ export async function extractWithLLM(
 
     const parsed = JSON.parse(factResponse.content) as Record<string, unknown>;
     const rawFacts = Array.isArray(parsed.facts) ? parsed.facts : [];
-    factStrings = rawFacts
-      .filter((f): f is string => typeof f === 'string')
-      .map(f => f.trim())
-      .filter(f => f.length > 0);
+    for (const f of rawFacts) {
+      if (typeof f === 'string') {
+        const trimmed = f.trim();
+        if (trimmed.length > 0) factEntries.push({ text: trimmed, importance: 0.5 });
+      } else if (f && typeof f === 'object') {
+        const obj = f as Record<string, unknown>;
+        const text = (typeof obj.t === 'string' ? obj.t : typeof obj.text === 'string' ? obj.text : '').trim();
+        const importance = typeof obj.i === 'number' ? obj.i : typeof obj.importance === 'number' ? obj.importance : 0.5;
+        if (text.length > 0) factEntries.push({ text, importance: Math.max(0, Math.min(1, importance)) });
+      }
+    }
+    factStrings = factEntries.map(e => e.text);
   } catch {
     return emptyResult(config.tier, config.llm.model);
   }
@@ -52,10 +61,10 @@ export async function extractWithLLM(
     return emptyResult(config.tier, config.llm.model);
   }
 
-  // Build ExtractedFact objects from strings
-  const facts: ExtractedFact[] = factStrings.map(content => ({
-    content,
-    importance: 0.5,
+  // Build ExtractedFact objects from parsed entries with LLM-scored importance
+  const facts: ExtractedFact[] = factEntries.map(({ text, importance }) => ({
+    content: text,
+    importance,
     confidence: 0.8,
     sourceType: 'conversation' as const,
     modality: 'text' as const,

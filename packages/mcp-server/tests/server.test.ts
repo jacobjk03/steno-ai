@@ -50,11 +50,11 @@ describe('MCP Server', () => {
     await client.connect(clientTransport);
   });
 
-  it('registers exactly 3 tools', async () => {
+  it('registers exactly 5 tools', async () => {
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(3);
+    expect(tools).toHaveLength(5);
     const names = tools.map((t) => t.name).sort();
-    expect(names).toEqual(['steno_feedback', 'steno_recall', 'steno_remember']);
+    expect(names).toEqual(['steno_feedback', 'steno_graph', 'steno_profile', 'steno_recall', 'steno_remember']);
   });
 
   describe('steno_remember', () => {
