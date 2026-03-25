@@ -96,16 +96,16 @@ export function createServer(steno: Steno): McpServer {
     },
     async ({ user_id }) => {
       // TODO: Replace with `await steno.profile(user_id)` once SDK supports it
-      const profile = await (steno as any).memory.http.request<ProfileResponse>(
+      const profile = await (steno as any).memory.http.request(
         'GET',
         `/v1/profile/${encodeURIComponent(user_id)}`,
-      );
+      ) as ProfileResponse;
       let text = `Profile for ${user_id}:\n\nStatic facts:\n`;
       text +=
-        (profile.static || []).map((f) => `  - [${f.category}] ${f.content}`).join('\n') ||
+        (profile.static || []).map((f: ProfileFact) => `  - [${f.category}] ${f.content}`).join('\n') ||
         '  (none)';
       text += '\n\nDynamic facts:\n';
-      text += (profile.dynamic || []).map((f) => `  - ${f.content}`).join('\n') || '  (none)';
+      text += (profile.dynamic || []).map((f: ProfileFact) => `  - ${f.content}`).join('\n') || '  (none)';
       return {
         content: [{ type: 'text' as const, text }],
       };
@@ -121,17 +121,17 @@ export function createServer(steno: Steno): McpServer {
     },
     async ({ entity_id, depth }) => {
       // TODO: Replace with `await steno.graph.getRelated(entity_id, depth ?? 2)` once SDK supports it
-      const result = await (steno as any).memory.http.request<GraphResponse>(
+      const result = await (steno as any).memory.http.request(
         'GET',
         `/v1/graph/${encodeURIComponent(entity_id)}?depth=${depth ?? 2}`,
-      );
+      ) as GraphResponse;
       const entities = result.entities || [];
       const edges = result.edges || [];
       let text = `Graph for entity ${entity_id}:\n`;
       text += `Entities: ${entities.length}\n`;
-      text += entities.map((e) => `  - ${e.name} (${e.entityType})`).join('\n');
+      text += entities.map((e: GraphEntity) => `  - ${e.name} (${e.entityType})`).join('\n');
       text += `\nRelationships: ${edges.length}\n`;
-      text += edges.map((e) => `  - ${e.relation}`).join('\n');
+      text += edges.map((e: GraphEdge) => `  - ${e.relation}`).join('\n');
       return {
         content: [{ type: 'text' as const, text }],
       };

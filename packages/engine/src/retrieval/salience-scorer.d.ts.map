@@ -1,0 +1,1 @@
+{"version":3,"file":"salience-scorer.d.ts","sourceRoot":"","sources":["salience-scorer.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,SAAS,EAAE,MAAM,YAAY,CAAC;AAE5C,MAAM,WAAW,cAAc;IAC7B,YAAY,EAAE,MAAM,CAAC;IACrB,cAAc,EAAE,MAAM,CAAC;CACxB;AAED;;;;;;;GAOG;AACH,wBAAgB,aAAa,CAC3B,UAAU,EAAE,SAAS,EAAE,EACvB,MAAM,CAAC,EAAE,OAAO,CAAC,cAAc,CAAC,GAC/B,SAAS,EAAE,CAsCb"}

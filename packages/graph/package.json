@@ -14,7 +14,7 @@
   },
   "files": ["dist"],
   "scripts": {
-    "build": "tsc && cp src/styles.css dist/styles.css",
+    "build": "tsc && mkdir -p dist && cp src/styles.css dist/styles.css",
     "typecheck": "tsc --noEmit",
     "dev": "tsc --watch"
   },

@@ -30,7 +30,7 @@ async function supabaseCount(config: SupabaseConfig, table: string, query: strin
   });
   const range = res.headers.get('content-range');
   if (range) {
-    const total = range.split('/')[1];
+    const total = range.split('/')[1] ?? '0';
     return total === '*' ? 0 : parseInt(total, 10);
   }
   return 0;
