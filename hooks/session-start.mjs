@@ -25,7 +25,8 @@ const TENANT_ID = process.env.STENO_TENANT_ID || '00000000-0000-0000-0000-000000
 const SCOPE_ID = process.env.STENO_SCOPE_ID || 'default';
 const MAX_PROFILE_ITEMS = 10;
 const MAX_PROJECT_ITEMS = 5;
-const MAX_FACT_LENGTH = 150; // skip verbose codebase dumps
+const MAX_PROFILE_FACT_LENGTH = 150;
+const MAX_PROJECT_FACT_LENGTH = 250; // architecture facts can be longer
 
 function output(additionalContext) {
   console.log(JSON.stringify(additionalContext ? { additionalContext } : {}));
@@ -57,14 +58,22 @@ async function main() {
       'Authorization': `Bearer ${SUPABASE_KEY}`,
     };
 
-    // Fetch personal profile — top facts by importance (identity, preferences, key decisions)
-    const personalRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/facts?tenant_id=eq.${TENANT_ID}&scope=eq.user&scope_id=eq.${SCOPE_ID}&valid_until=is.null&importance=gte.0.6&select=content,importance&order=importance.desc,created_at.desc&limit=${MAX_PROFILE_ITEMS}`,
-      { headers },
-    );
+    // Fetch in parallel: personal profile + project-specific facts
+    const [personalRes, projectRes] = await Promise.all([
+      // Personal: top facts by importance (identity, preferences, decisions)
+      fetch(
+        `${SUPABASE_URL}/rest/v1/facts?tenant_id=eq.${TENANT_ID}&scope=eq.user&scope_id=eq.${SCOPE_ID}&valid_until=is.null&importance=gte.0.6&select=content,importance&order=importance.desc,created_at.desc&limit=${MAX_PROFILE_ITEMS}`,
+        { headers },
+      ),
+      // Project: facts matching the current project name (use % wildcard for ilike)
+      fetch(
+        `${SUPABASE_URL}/rest/v1/facts?tenant_id=eq.${TENANT_ID}&scope=eq.user&scope_id=eq.${SCOPE_ID}&valid_until=is.null&select=content,importance&content=ilike.%25${encodeURIComponent(projectName)}%25&order=importance.desc,created_at.desc&limit=8`,
+        { headers },
+      ),
+    ]);
 
     const personalFacts = personalRes.ok ? await personalRes.json() : [];
-    const projectFacts = []; // project context comes from steno_recall during the session
+    const projectFacts = projectRes.ok ? await projectRes.json() : [];
 
     if (personalFacts.length === 0 && projectFacts.length === 0) {
       output(null);
@@ -80,8 +89,8 @@ async function main() {
       return true;
     });
 
-    const personal = dedup(personalFacts).filter(f => f.content.length <= MAX_FACT_LENGTH);
-    const project = dedup(projectFacts).filter(f => f.content.length <= MAX_FACT_LENGTH);
+    const personal = dedup(personalFacts).filter(f => f.content.length <= MAX_PROFILE_FACT_LENGTH);
+    const project = dedup(projectFacts).filter(f => f.content.length <= MAX_PROJECT_FACT_LENGTH);
 
     // Build context block
     let context = '<steno-memory>\n';
@@ -98,12 +107,13 @@ async function main() {
       context += '\n\n';
     }
 
-    context += `## Instructions
-- Reference these memories naturally when relevant. Don't force them into every response.
-- When the user shares new personal info, preferences, or decisions, use steno_remember to save it.
-- When you need to recall specific past context, use steno_recall to search.
-- Don't mention "steno" or "memory system" unless the user asks about it.
-- Prefer memory recall over re-reading files when answering questions about past work or decisions.
+    context += `## Memory Instructions (IMPORTANT)
+- Do NOT use the built-in auto memory system (Write to .claude/memory/). Use steno instead.
+- When the user shares personal info, preferences, decisions, or anything worth remembering → call steno_remember immediately.
+- When you need context about the user, past decisions, or previous work → call steno_recall to search.
+- When answering questions about the user's preferences or history → call steno_recall FIRST before guessing.
+- For architecture questions about the CURRENT project, trust the Project Context above before reading files. Only read files if the memory doesn't cover the question.
+- Reference injected memories above naturally. Don't mention "steno" unless asked.
 </steno-memory>`;
 
     output(context);
