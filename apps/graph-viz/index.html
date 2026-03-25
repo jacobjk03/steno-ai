@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Steno Memory Graph</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #08080f; color: #e0e0e8; font-family: 'Inter', -apple-system, system-ui, sans-serif; overflow: hidden; }
+
+  #loading { position: fixed; inset: 0; background: #08080f; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; transition: opacity 0.5s; }
+  #loading.hidden { opacity: 0; pointer-events: none; }
+  .spinner { width: 40px; height: 40px; border: 3px solid #1a1a2e; border-top-color: #6366f1; border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #loading p { margin-top: 16px; color: #888; font-size: 14px; }
+
+  #stats { position: fixed; top: 16px; right: 16px; background: #12121ecc; backdrop-filter: blur(12px); border: 1px solid #1e1e30; border-radius: 10px; padding: 14px 18px; font-size: 12px; z-index: 100; min-width: 160px; display: none; }
+  #stats h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #6366f1; margin-bottom: 8px; }
+  .stat-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+  .stat-label { color: #888; }
+  .stat-value { color: #e0e0e8; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  #filters { position: fixed; top: 16px; left: 16px; background: #12121ecc; backdrop-filter: blur(12px); border: 1px solid #1e1e30; border-radius: 10px; padding: 14px 18px; font-size: 12px; z-index: 100; width: 200px; max-height: calc(100vh - 32px); overflow-y: auto; display: none; }
+  #filters h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #6366f1; margin-bottom: 10px; }
+  #filters input[type="text"] { width: 100%; background: #0a0a16; border: 1px solid #2a2a3e; border-radius: 6px; padding: 6px 10px; color: #e0e0e8; font-size: 12px; outline: none; margin-bottom: 12px; }
+  #filters input[type="text"]:focus { border-color: #6366f1; }
+  .filter-section h4 { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: #666; margin-bottom: 6px; }
+  .filter-item { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; cursor: pointer; }
+  .filter-item input[type="checkbox"] { accent-color: #6366f1; }
+  .filter-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+  #fact-panel { position: fixed; top: 0; right: -400px; width: 380px; height: 100vh; background: #12121ef0; backdrop-filter: blur(16px); border-left: 1px solid #1e1e30; padding: 20px; z-index: 200; transition: right 0.3s ease; overflow-y: auto; }
+  #fact-panel.open { right: 0; }
+  #fact-panel h3 { font-size: 16px; margin-bottom: 4px; }
+  .entity-type { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px; }
+  .close-btn { position: absolute; top: 16px; right: 16px; background: none; border: none; color: #666; font-size: 20px; cursor: pointer; }
+  .close-btn:hover { color: #e0e0e8; }
+  .fact-item { background: #0a0a16; border: 1px solid #1e1e30; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; font-size: 13px; line-height: 1.5; }
+  .fact-importance { font-size: 10px; color: #6366f1; margin-top: 4px; }
+  .section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #666; margin: 16px 0 8px; }
+  .edge-item { background: #0a0a16; border: 1px solid #1e1e30; border-radius: 8px; padding: 8px 12px; margin-bottom: 6px; font-size: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .edge-arrow { color: #6366f1; }
+
+  #tooltip { position: fixed; background: #1a1a2eee; border: 1px solid #2a2a3e; border-radius: 8px; padding: 8px 12px; font-size: 12px; pointer-events: none; z-index: 300; display: none; white-space: nowrap; }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #2a2a3e; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div id="loading"><div class="spinner"></div><p>Loading graph data...</p></div>
+
+<div id="stats">
+  <h3>Memory Stats</h3>
+  <div class="stat-row"><span class="stat-label">Entities</span><span class="stat-value" id="s-ent">0</span></div>
+  <div class="stat-row"><span class="stat-label">Edges</span><span class="stat-value" id="s-edg">0</span></div>
+  <div class="stat-row"><span class="stat-label">Facts</span><span class="stat-value" id="s-fct">0</span></div>
+  <div class="stat-row" style="margin-top:8px;border-top:1px solid #1e1e30;padding-top:6px"><span class="stat-label">Visible</span><span class="stat-value" id="s-vis">0</span></div>
+</div>
+
+<div id="filters">
+  <h3>Filters</h3>
+  <input type="text" id="search" placeholder="Search entities..." oninput="applyFilters()">
+  <div class="filter-section"><h4>Entity Types</h4><div id="type-filters"></div></div>
+</div>
+
+<div id="fact-panel">
+  <button class="close-btn" onclick="document.getElementById('fact-panel').classList.remove('open')">&times;</button>
+  <h3 id="fp-name"></h3>
+  <div class="entity-type" id="fp-type"></div>
+  <div class="section-title">Facts</div>
+  <div id="fp-facts"></div>
+  <div class="section-title">Relationships</div>
+  <div id="fp-edges"></div>
+</div>
+
+<div id="tooltip"><div id="tt-name" style="font-weight:600"></div><div id="tt-type" style="color:#888;font-size:10px;text-transform:uppercase"></div><div id="tt-facts" style="color:#6366f1;font-size:11px;margin-top:2px"></div></div>
+
+<div id="legend" style="position:fixed;bottom:16px;left:16px;background:#12121ecc;backdrop-filter:blur(12px);border:1px solid #1e1e30;border-radius:10px;padding:12px 16px;font-size:11px;z-index:100;display:none">
+  <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#6366f1;margin-bottom:8px">Edge Types</div>
+  <div style="display:flex;flex-direction:column;gap:4px" id="edge-legend"></div>
+</div>
+<div id="graph"></div>
+
+<script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+<script src="https://unpkg.com/3d-force-graph@1.73.4/dist/3d-force-graph.min.js"></script>
+<script>
+const COLORS = { person:'#4488ff', organization:'#44dd88', location:'#ff5555', technology:'#aa66ff', concept:'#ff9944', event:'#ffdd44' };
+const ECOLORS = { associative:'#6677cc', causal:'#dd6688', temporal:'#66cc88', hierarchical:'#cccc66', contradictory:'#ff4455' };
+const DC = '#555566';
+
+// Config from URL params or hardcoded for dev
+const P = new URLSearchParams(location.search);
+const URL = P.get('url') || 'https://zhqcetwuecedebrbawxl.supabase.co';
+const KEY = P.get('key') || '';
+const TID = P.get('tenant') || '00000000-0000-0000-0000-000000000001';
+
+if (!KEY) {
+  document.getElementById('loading').innerHTML = `
+    <div style="text-align:center;max-width:400px">
+      <h2 style="margin-bottom:16px;color:#e0e0e8">Steno Memory Graph</h2>
+      <p style="color:#888;margin-bottom:16px;font-size:13px">Open with your Supabase key in the URL:</p>
+      <code style="background:#12121e;padding:8px 12px;border-radius:6px;font-size:11px;color:#6366f1;display:block;word-break:break-all">localhost:3333?key=YOUR_SUPABASE_SERVICE_ROLE_KEY</code>
+    </div>`;
+} else { init(); }
+
+let graph, fullData = { nodes: [], links: [] };
+
+async function GET(table, q) {
+  const r = await fetch(`${URL}/rest/v1/${table}?${q}`, { headers: { apikey: KEY, Authorization: `Bearer ${KEY}` } });
+  return r.json();
+}
+
+async function init() {
+  try {
+    const [ents, edgs, fes] = await Promise.all([
+      GET('entities', `tenant_id=eq.${TID}&merge_target_id=is.null&select=id,canonical_name,name,entity_type&limit=500`),
+      GET('edges', `tenant_id=eq.${TID}&select=id,source_id,target_id,relation,edge_type,weight&limit=5000`),
+      GET('fact_entities', `select=entity_id&limit=10000`),
+    ]);
+
+    const eids = new Set(ents.map(e => e.id));
+    const fc = {};
+    fes.forEach(f => { if (eids.has(f.entity_id)) fc[f.entity_id] = (fc[f.entity_id]||0)+1; });
+
+    const nodes = ents.map(e => ({
+      id: e.id, name: e.canonical_name||e.name||'?', displayName: e.name||e.canonical_name||'?',
+      type: e.entity_type||'concept', factCount: fc[e.id]||0
+    }));
+
+    const nids = new Set(nodes.map(n => n.id));
+    const links = edgs.filter(e => nids.has(e.source_id)&&nids.has(e.target_id)).map(e => ({
+      source: e.source_id, target: e.target_id, relation: e.relation,
+      edgeType: e.edge_type, weight: parseFloat(e.weight)||1
+    }));
+
+    fullData = { nodes, links };
+    document.getElementById('s-ent').textContent = nodes.length;
+    document.getElementById('s-edg').textContent = links.length;
+    document.getElementById('s-vis').textContent = nodes.length;
+    document.getElementById('stats').style.display = 'block';
+
+    // Type filters
+    const types = [...new Set(nodes.map(n => n.type))].sort();
+    document.getElementById('type-filters').innerHTML = types.map(t =>
+      `<label class="filter-item"><input type="checkbox" checked data-type="${t}" onchange="applyFilters()"><span class="filter-dot" style="background:${COLORS[t]||DC}"></span>${t} (${nodes.filter(n=>n.type===t).length})</label>`
+    ).join('');
+    document.getElementById('filters').style.display = 'block';
+
+    // Edge legend
+    const edgeTypes = [...new Set(links.map(l=>l.edgeType))].sort();
+    document.getElementById('edge-legend').innerHTML = edgeTypes.map(t =>
+      `<div style="display:flex;align-items:center;gap:6px"><div style="width:20px;height:3px;background:${ECOLORS[t]||'#555'};border-radius:2px"></div><span style="color:#999">${t}</span></div>`
+    ).join('');
+    document.getElementById('legend').style.display = 'block';
+
+    render(nodes, links);
+    document.getElementById('loading').classList.add('hidden');
+  } catch(e) {
+    document.getElementById('loading').querySelector('p').textContent = 'Error: ' + e.message;
+  }
+}
+
+function render(nodes, links) {
+  if (graph) { document.getElementById('graph').innerHTML = ''; }
+
+  graph = ForceGraph3D()(document.getElementById('graph'))
+    .backgroundColor('#08080f')
+    .graphData({ nodes: [...nodes], links: [...links] })
+    .nodeVal(n => Math.max(2, Math.sqrt(n.factCount+1)*2.5))
+    .nodeColor(n => COLORS[n.type]||DC)
+    .nodeOpacity(0.92)
+    .nodeLabel('')
+    .nodeThreeObject(node => {
+      const g = new THREE.Group();
+      const s = Math.max(3, Math.sqrt(node.factCount+1)*2.5);
+      const c = COLORS[node.type]||DC;
+      // Outer glow
+      const glowGeo = new THREE.SphereGeometry(s*1.6, 16, 16);
+      const glowMat = new THREE.MeshBasicMaterial({ color:c, transparent:true, opacity:0.08 });
+      g.add(new THREE.Mesh(glowGeo, glowMat));
+      // Core sphere
+      const geo = new THREE.SphereGeometry(s,20,20);
+      const mat = new THREE.MeshPhongMaterial({ color:c, emissive:c, emissiveIntensity:0.5, transparent:true, opacity:0.92, shininess:80 });
+      g.add(new THREE.Mesh(geo, mat));
+
+      const cv = document.createElement('canvas');
+      const ctx = cv.getContext('2d');
+      const txt = node.displayName||node.name;
+      const fontSize = 48;
+      const scale = 3; // high-res
+      ctx.font = `700 ${fontSize}px "SF Pro Display","Inter",-apple-system,system-ui,sans-serif`;
+      const tw = ctx.measureText(txt).width;
+      cv.width = (tw+32)*scale; cv.height = (fontSize+16)*scale;
+      ctx.scale(scale,scale);
+      // Background pill for readability
+      ctx.fillStyle = 'rgba(8,8,15,0.7)';
+      ctx.roundRect(0, 0, tw+32, fontSize+16, 8);
+      ctx.fill();
+      // Text
+      ctx.font = `700 ${fontSize}px "SF Pro Display","Inter",-apple-system,system-ui,sans-serif`;
+      ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 6; ctx.shadowOffsetY = 2;
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(txt, (tw+32)/2, (fontSize+16)/2);
+      const tex = new THREE.CanvasTexture(cv);
+      tex.needsUpdate = true;
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map:tex, transparent:true, opacity:0.95 }));
+      sp.scale.set(cv.width/10, cv.height/10, 1);
+      sp.position.y = s+5;
+      g.add(sp);
+      return g;
+    })
+    .linkColor(l => ECOLORS[l.edgeType]||'#3a3a55')
+    .linkWidth(l => Math.max(0.5, l.weight*1.2))
+    .linkOpacity(0.55)
+    .linkCurvature(0.15)
+    .linkDirectionalParticles(l => l.weight>0.5?3:2)
+    .linkDirectionalParticleWidth(1.8)
+    .linkDirectionalParticleSpeed(0.006)
+    .linkDirectionalParticleColor(l => ECOLORS[l.edgeType]||'#5555aa')
+    .linkLabel(l => `${l.relation} (${l.edgeType})`)
+    .onNodeHover((n) => {
+      const tt = document.getElementById('tooltip');
+      if (n) {
+        document.getElementById('tt-name').textContent = n.displayName||n.name;
+        document.getElementById('tt-type').textContent = n.type;
+        document.getElementById('tt-facts').textContent = n.factCount+' fact'+(n.factCount!==1?'s':'');
+        tt.style.display = 'block';
+        document.body.style.cursor = 'pointer';
+      } else { tt.style.display = 'none'; document.body.style.cursor = 'default'; }
+    })
+    .onNodeClick(async (n) => {
+      document.getElementById('fp-name').textContent = n.displayName||n.name;
+      document.getElementById('fp-type').textContent = n.type;
+      const fd = document.getElementById('fp-facts');
+      fd.innerHTML = '<div style="color:#666;font-size:12px">Loading...</div>';
+      try {
+        const fl = await GET('fact_entities', `entity_id=eq.${n.id}&select=facts(id,content,importance)&limit=20`);
+        const facts = (fl||[]).map(f=>f.facts).filter(Boolean).sort((a,b)=>(b.importance||0)-(a.importance||0));
+        fd.innerHTML = facts.length ? facts.map(f=>`<div class="fact-item">${f.content}<div class="fact-importance">importance: ${parseFloat(f.importance||0).toFixed(2)}</div></div>`).join('') : '<div style="color:#666;font-size:12px">No facts</div>';
+      } catch(e) { fd.innerHTML = `<div style="color:#f55;font-size:12px">${e.message}</div>`; }
+      const ed = document.getElementById('fp-edges');
+      const ce = fullData.links.filter(l => {
+        const s = typeof l.source==='object'?l.source.id:l.source;
+        const t = typeof l.target==='object'?l.target.id:l.target;
+        return s===n.id||t===n.id;
+      });
+      ed.innerHTML = ce.length ? ce.map(e => {
+        const s = typeof e.source==='object'?e.source:fullData.nodes.find(x=>x.id===e.source);
+        const t = typeof e.target==='object'?e.target:fullData.nodes.find(x=>x.id===e.target);
+        return `<div class="edge-item">${s?.displayName||'?'} <span class="edge-arrow">&rarr;</span> <strong>${e.relation}</strong> <span class="edge-arrow">&rarr;</span> ${t?.displayName||'?'}</div>`;
+      }).join('') : '<div style="color:#666;font-size:12px">No relationships</div>';
+      document.getElementById('fact-panel').classList.add('open');
+    });
+
+  graph.d3Force('charge').strength(-180);
+  graph.d3Force('link').distance(60);
+  const sc = graph.scene();
+  sc.add(new THREE.AmbientLight(0x222233,2));
+  const dl = new THREE.DirectionalLight(0x6666aa,1);
+  dl.position.set(100,200,100);
+  sc.add(dl);
+  setTimeout(() => graph.zoomToFit(1000,50), 2000);
+}
+
+document.addEventListener('mousemove', e => {
+  const tt = document.getElementById('tooltip');
+  if (tt.style.display === 'block') { tt.style.left = (e.clientX+14)+'px'; tt.style.top = (e.clientY+14)+'px'; }
+});
+
+function applyFilters() {
+  const q = document.getElementById('search').value.toLowerCase();
+  const ct = new Set([...document.querySelectorAll('#type-filters input:checked')].map(c=>c.dataset.type));
+  const fn = fullData.nodes.filter(n => ct.has(n.type) && (!q || n.name.toLowerCase().includes(q) || n.displayName.toLowerCase().includes(q)));
+  const fi = new Set(fn.map(n=>n.id));
+  const fl = fullData.links.filter(l => {
+    const s = typeof l.source==='object'?l.source.id:l.source;
+    const t = typeof l.target==='object'?l.target.id:l.target;
+    return fi.has(s)&&fi.has(t);
+  });
+  document.getElementById('s-vis').textContent = fn.length;
+  graph.graphData({ nodes: fn, links: fl });
+}
+</script>
+</body>
+</html>

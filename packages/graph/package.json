@@ -1,0 +1,34 @@
+{
+  "name": "@steno-ai/graph",
+  "version": "0.1.0",
+  "description": "3D memory knowledge graph visualizer for Steno",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./styles.css": "./dist/styles.css"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc && cp src/styles.css dist/styles.css",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsc --watch"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "dependencies": {
+    "3d-force-graph": "^1.73.4",
+    "three": "^0.160.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18",
+    "@types/three": "^0.160.0",
+    "typescript": "^5.7"
+  }
+}
