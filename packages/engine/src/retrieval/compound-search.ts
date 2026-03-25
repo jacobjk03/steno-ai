@@ -19,7 +19,25 @@ export async function compoundSearchSignal(
   const queryEmbedding = await embedding.embed(query);
 
   // Extract key content words for keyword search (strip question words and stop words)
-  const stopWords = new Set(['what', 'when', 'where', 'who', 'why', 'how', 'which', 'is', 'are', 'was', 'were', 'did', 'does', 'do', 'the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'and', 'or', 'but', 'not', 'if', 'would', 'could', 'should', 'still', 'have', 'has', 'had', 'been', 'be', 'will', 'can', 'that', 'this', 'it', 'its', 'her', 'his', 'she', 'he', 'they', 'them', 'their', 'my', 'your', 'our', 'user', 'users', 'about', 'know', 'tell', 'like', 'want', 'need', 'think', 'use', 'make', 'get', 'any', 'all', 'some', 'just', 'also', 'very']);
+  // Strip question words and pronouns that don't help keyword search.
+  // PostgreSQL's to_tsquery('english', ...) handles standard English stop words
+  // and IDF weighting natively — we only need to strip query-specific noise.
+  const stopWords = new Set([
+    // Question words (appear in queries but not in stored facts)
+    'what', 'when', 'where', 'who', 'why', 'how', 'which',
+    // Verbs that appear in questions
+    'is', 'are', 'was', 'were', 'did', 'does', 'do', 'will', 'can', 'could', 'would', 'should',
+    'have', 'has', 'had', 'been', 'be',
+    // Articles and prepositions (Postgres handles these but we strip early)
+    'the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of', 'with',
+    // Conjunctions
+    'and', 'or', 'but', 'not', 'if', 'still',
+    // Pronouns
+    'it', 'its', 'her', 'his', 'she', 'he', 'they', 'them', 'their', 'my', 'your', 'our',
+    'that', 'this',
+    // "user" appears in nearly every stored fact — searching it matches everything
+    'user',
+  ]);
   const keywordQuery = query.toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
