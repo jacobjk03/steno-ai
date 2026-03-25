@@ -58,6 +58,81 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
       if (!memoryText) {
         return { content: [{ type: 'text' as const, text: 'Error: provide content or text' }] };
       }
+
+      // FAST PATH: For short, already-clean facts (< 200 chars, single sentence),
+      // skip the LLM extraction pipeline and store directly. ~200ms vs ~5000ms.
+      const isSingleFact = memoryText.length < 200 && !memoryText.includes('\n') && memoryText.split('.').length <= 2;
+
+      if (isSingleFact) {
+        const factId = crypto.randomUUID();
+        const embedding = await config.embedding.embed(memoryText);
+
+        // Quick dedup check — see if very similar fact exists
+        const matches = await config.storage.vectorSearch({
+          embedding,
+          tenantId: config.tenantId,
+          scope: config.scope,
+          scopeId: config.scopeId,
+          limit: 1,
+          minSimilarity: 0.85,
+          validOnly: true,
+        });
+
+        if (matches.length > 0) {
+          // Similar fact exists — invalidate it and create updated version
+          const oldFact = matches[0].fact;
+          await config.storage.invalidateFact(config.tenantId, oldFact.id);
+          await config.storage.createFact({
+            id: factId,
+            lineageId: oldFact.lineageId ?? crypto.randomUUID(),
+            tenantId: config.tenantId,
+            scope: config.scope,
+            scopeId: config.scopeId,
+            content: memoryText,
+            embeddingModel: config.embeddingModel,
+            embeddingDim: config.embeddingDim,
+            embedding,
+            importance: 0.7,
+            confidence: 1.0,
+            operation: 'update',
+            sourceType: 'api',
+            modality: 'text',
+            tags: ['direct'],
+            metadata: {},
+            contradictionStatus: 'none',
+          });
+          return {
+            content: [{ type: 'text' as const, text: `Updated memory (replaced similar fact)` }],
+          };
+        }
+
+        // No similar fact — create new
+        await config.storage.createFact({
+          id: factId,
+          lineageId: crypto.randomUUID(),
+          tenantId: config.tenantId,
+          scope: config.scope,
+          scopeId: config.scopeId,
+          content: memoryText,
+          embeddingModel: config.embeddingModel,
+          embeddingDim: config.embeddingDim,
+          embedding,
+          importance: 0.7,
+          confidence: 1.0,
+          operation: 'create',
+          sourceType: 'api',
+          modality: 'text',
+          tags: ['direct'],
+          metadata: {},
+          contradictionStatus: 'none',
+        });
+        return {
+          content: [{ type: 'text' as const, text: `Remembered` }],
+        };
+      }
+
+      // FULL PATH: For longer text, multi-sentence content, conversations.
+      // Runs LLM extraction + graph building + dedup. ~3-8 seconds.
       const runPipeline = await getPipeline();
       const result = await runPipeline(
         {
