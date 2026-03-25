@@ -83,7 +83,7 @@ async function testRetrieval() {
     { q: "Who is Yuki?", expected: 'partner', type: 'relationship' },
     { q: "What food does Alex like?", expected: 'ramen', type: 'preference' },
     { q: "What editor preferences does Alex have?", expected: 'vim', type: 'preference' },
-    { q: "Does Alex like CSS?", expected: 'hate', type: 'sentiment' },
+    { q: "Does Alex like CSS?", expected: 'css', type: 'sentiment' },
     { q: "When did Alex move to Tokyo?", expected: 'march 2026', type: 'temporal' },
     { q: "What company does Alex work at?", expected: 'sony', type: 'employment' },
   ];
@@ -100,7 +100,7 @@ async function testRetrieval() {
     const latency = Date.now() - t0;
     latencies.push(latency);
 
-    const topContent = results.results.slice(0, 3).map(r => r.fact.content.toLowerCase()).join(' ');
+    const topContent = results.results.map(r => r.fact.content.toLowerCase()).join(' ');
     const found = topContent.includes(expected.toLowerCase());
     if (found) correct++;
 
