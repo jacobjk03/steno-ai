@@ -775,18 +775,16 @@ describe('runExtractionPipeline – error handling', () => {
 // ---------------------------------------------------------------------------
 
 describe('runExtractionPipeline – fact versioning', () => {
-  it('invalidates old fact when operation=update', async () => {
+  it('creates new version without invalidating old fact (Git-style append-only)', async () => {
     const existingLineageId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
     const oldFactId = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 
     const invalidateFact = vi.fn(async () => {});
+    const createFact = vi.fn(async (f: any) => makeStoredFact({ id: f.id, lineageId: f.lineageId }));
 
-    // vectorSearch returns a similar fact so dedup is triggered
     const storage = makeMockStorage({
       invalidateFact,
-      getFactsByLineage: vi.fn(async () => [
-        makeStoredFact({ id: oldFactId, lineageId: existingLineageId, validUntil: null }),
-      ]),
+      createFact,
       vectorSearch: vi.fn(async () => [
         {
           fact: makeStoredFact({ id: oldFactId, lineageId: existingLineageId }),
@@ -795,11 +793,6 @@ describe('runExtractionPipeline – fact versioning', () => {
       ]),
     });
 
-    // Build a multi-response mock that handles:
-    // Call 1 (Pass 1 - fact extraction): return the fact string
-    // Call 2 (Pass 2 - graph): return empty graph
-    // Call 3 (dedup classification): return update with lineageId
-    // Call 4+ (scratchpad etc): return empty
     let callCount = 0;
     const cheapLLM: LLMAdapter = {
       complete: vi.fn(async (): Promise<LLMResponse> => {
@@ -833,9 +826,11 @@ describe('runExtractionPipeline – fact versioning', () => {
 
     const result = await runExtractionPipeline(config, makeRawTextInput("My name is Alice Smith"));
 
-    expect(invalidateFact).toHaveBeenCalledWith(TENANT_ID, oldFactId);
+    // Git-style: old fact should NOT be invalidated
+    expect(invalidateFact).not.toHaveBeenCalled();
+    // But new fact should still be created as an update
     expect(result.factsUpdated).toBeGreaterThanOrEqual(1);
-    expect(result.factsInvalidated).toBeGreaterThanOrEqual(1);
+    expect(result.factsInvalidated).toBe(0);
   });
 
   it('does NOT create a new lineageId for update operations (reuses existing)', async () => {

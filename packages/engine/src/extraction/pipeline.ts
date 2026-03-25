@@ -276,24 +276,13 @@ async function executeExtraction(
       metadata: {},
     });
 
-    // Track counts
+    // Track counts — Git-style append-only: NEVER invalidate old facts.
+    // Updates create new versions with same lineageId. Recency scoring
+    // naturally prefers newer versions. Old versions remain searchable
+    // for temporal reasoning ("what was my old X?").
     if (fact.operation === 'update') {
       factsUpdated++;
-
-      // Invalidate the old fact version
-      if (fact.existingLineageId) {
-        // Find old facts by lineage and invalidate the current valid one
-        const oldFacts = await config.storage.getFactsByLineage(
-          input.tenantId,
-          fact.existingLineageId,
-        );
-        for (const oldFact of oldFacts) {
-          if (oldFact.id !== factId && oldFact.validUntil === null) {
-            await config.storage.invalidateFact(input.tenantId, oldFact.id);
-            factsInvalidated++;
-          }
-        }
-      }
+      // No invalidation — old fact stays visible with valid_until = NULL
     } else if (fact.operation === 'invalidate') {
       factsInvalidated++;
     } else {

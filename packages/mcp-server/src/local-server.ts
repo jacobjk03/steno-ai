@@ -102,9 +102,8 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
         });
 
         if (matches.length > 0) {
-          // Similar fact exists — invalidate it and create updated version
+          // Similar fact exists — create new version (Git-style append-only, never invalidate)
           const oldFact = matches[0].fact;
-          await config.storage.invalidateFact(config.tenantId, oldFact.id);
           await config.storage.createFact({
             id: factId,
             lineageId: oldFact.lineageId ?? crypto.randomUUID(),
@@ -126,7 +125,7 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
           });
           await linkToUser(factId);
           return {
-            content: [{ type: 'text' as const, text: `Updated memory (replaced similar fact)` }],
+            content: [{ type: 'text' as const, text: `Updated memory (new version created)` }],
           };
         }
 

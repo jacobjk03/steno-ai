@@ -2,6 +2,7 @@ import type { LLMAdapter } from '../adapters/llm.js';
 import type { ExtractionResult, ExtractedFact, ExtractedEntity, ExtractedEdge } from './types.js';
 import type { ExtractionTier, EdgeType } from '../config.js';
 import { buildFactExtractionPrompt, buildGraphExtractionPrompt, buildExtractionPrompt } from './prompts.js';
+import { createEnrichedSegments } from './sliding-window.js';
 
 export interface LLMExtractorConfig {
   llm: LLMAdapter;
@@ -21,39 +22,80 @@ export async function extractWithLLM(
   let totalTokensIn = 0;
   let totalTokensOut = 0;
 
-  // ── PASS 1: Fact extraction ──
-  const factMessages = buildFactExtractionPrompt(input);
-
-  // If existing facts provided, append them for dedup context
-  if (existingFacts && existingFacts.length > 0) {
-    const factsBlock = existingFacts
-      .map(f => `- [lineage: ${f.lineageId}] ${f.content}`)
-      .join('\n');
-    factMessages[1]!.content += `\n\n--- EXISTING FACTS (skip duplicates, mark updates) ---\n${factsBlock}`;
-  }
+  // ── PASS 1: Fact extraction with Sliding Window Inference ──
+  // For long inputs, split into overlapping segments so the LLM can resolve
+  // pronouns and references using surrounding context (like Hydra DB).
+  const segments = createEnrichedSegments(input);
 
   let factStrings: string[] = [];
   let factEntries: Array<{ text: string; importance: number }> = [];
-  try {
-    const factResponse = await config.llm.complete(factMessages, { temperature: 0, responseFormat: 'json' });
-    totalTokensIn += factResponse.tokensInput;
-    totalTokensOut += factResponse.tokensOutput;
 
-    const parsed = JSON.parse(factResponse.content) as Record<string, unknown>;
-    const rawFacts = Array.isArray(parsed.facts) ? parsed.facts : [];
-    for (const f of rawFacts) {
-      if (typeof f === 'string') {
-        const trimmed = f.trim();
-        if (trimmed.length > 0) factEntries.push({ text: trimmed, importance: 0.5 });
-      } else if (f && typeof f === 'object') {
-        const obj = f as Record<string, unknown>;
-        const text = (typeof obj.t === 'string' ? obj.t : typeof obj.text === 'string' ? obj.text : '').trim();
-        const importance = typeof obj.i === 'number' ? obj.i : typeof obj.importance === 'number' ? obj.importance : 0.5;
-        if (text.length > 0) factEntries.push({ text, importance: Math.max(0, Math.min(1, importance)) });
+  // Process segments (in parallel for speed, up to 4 at a time)
+  const segmentBatches: typeof segments[] = [];
+  for (let i = 0; i < segments.length; i += 4) {
+    segmentBatches.push(segments.slice(i, i + 4));
+  }
+
+  for (const batch of segmentBatches) {
+    const batchPromises = batch.map(async (seg) => {
+      const factMessages = buildFactExtractionPrompt(seg.contextWindow);
+
+      // Append existing facts for dedup context
+      if (existingFacts && existingFacts.length > 0) {
+        const factsBlock = existingFacts
+          .map(f => `- [lineage: ${f.lineageId}] ${f.content}`)
+          .join('\n');
+        factMessages[1]!.content += `\n\n--- EXISTING FACTS (skip duplicates, mark updates) ---\n${factsBlock}`;
       }
+
+      // Also append already-extracted facts from previous segments to avoid duplicates
+      if (factEntries.length > 0) {
+        const alreadyExtracted = factEntries.map(f => `- ${f.text}`).join('\n');
+        factMessages[1]!.content += `\n\n--- ALREADY EXTRACTED (skip these) ---\n${alreadyExtracted}`;
+      }
+
+      try {
+        const factResponse = await config.llm.complete(factMessages, { temperature: 0, responseFormat: 'json' });
+        totalTokensIn += factResponse.tokensInput;
+        totalTokensOut += factResponse.tokensOutput;
+
+        const parsed = JSON.parse(factResponse.content) as Record<string, unknown>;
+        const rawFacts = Array.isArray(parsed.facts) ? parsed.facts : [];
+        const entries: Array<{ text: string; importance: number }> = [];
+        for (const f of rawFacts) {
+          if (typeof f === 'string') {
+            const trimmed = f.trim();
+            if (trimmed.length > 0) entries.push({ text: trimmed, importance: 0.5 });
+          } else if (f && typeof f === 'object') {
+            const obj = f as Record<string, unknown>;
+            const text = (typeof obj.t === 'string' ? obj.t : typeof obj.text === 'string' ? obj.text : '').trim();
+            const importance = typeof obj.i === 'number' ? obj.i : typeof obj.importance === 'number' ? obj.importance : 0.5;
+            if (text.length > 0) entries.push({ text, importance: Math.max(0, Math.min(1, importance)) });
+          }
+        }
+        return entries;
+      } catch {
+        return [];
+      }
+    });
+
+    const batchResults = await Promise.all(batchPromises);
+    for (const entries of batchResults) {
+      factEntries.push(...entries);
     }
-    factStrings = factEntries.map(e => e.text);
-  } catch {
+  }
+
+  // Deduplicate facts by content similarity (simple string match)
+  const seenContent = new Set<string>();
+  factEntries = factEntries.filter(e => {
+    const key = e.text.toLowerCase().trim();
+    if (seenContent.has(key)) return false;
+    seenContent.add(key);
+    return true;
+  });
+  factStrings = factEntries.map(e => e.text);
+
+  if (factEntries.length === 0) {
     return emptyResult(config.tier, config.llm.model);
   }
 

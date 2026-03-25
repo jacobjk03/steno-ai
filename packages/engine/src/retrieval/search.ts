@@ -89,7 +89,62 @@ export async function search(
   const triggerResult = triggerSettled;
   const triggersMatched = triggerResult.triggersMatched;
 
-  // 2. Merge all candidates
+  // 2. Triple-tier pre-fusion reranking — rerank each stream INDEPENDENTLY
+  //    before fusion, like Hydra DB's triple-tier architecture.
+  const t1 = Date.now();
+
+  // Batch-embed query + all unique candidate contents in ONE call
+  const allPreRerankCandidates = [...vectorCandidates, ...graphCandidates];
+  let queryEmbedding: number[] | null = null;
+  const candidateEmbeddings = new Map<string, number[]>();
+
+  if (allPreRerankCandidates.length > 1) {
+    try {
+      const uniqueTexts = new Map<string, string>();
+      for (const c of allPreRerankCandidates) {
+        if (!uniqueTexts.has(c.fact.id)) uniqueTexts.set(c.fact.id, c.fact.content);
+      }
+      const textsToEmbed = [options.query, ...uniqueTexts.values()];
+      const embeddings = await effectiveEmbedding.embedBatch(textsToEmbed);
+      queryEmbedding = embeddings[0]!;
+      let idx = 1;
+      for (const [factId] of uniqueTexts) {
+        candidateEmbeddings.set(factId, embeddings[idx++]!);
+      }
+    } catch {
+      // Reranking fails silently — proceed without it
+    }
+  }
+
+  // Rerank vector candidates
+  if (queryEmbedding && vectorCandidates.length > 1) {
+    const RERANK_W = 0.4;
+    for (const c of vectorCandidates) {
+      const factEmb = candidateEmbeddings.get(c.fact.id);
+      if (factEmb) {
+        const sim = cosineSim(queryEmbedding, factEmb);
+        c.vectorScore = c.vectorScore * (1 - RERANK_W) + sim * RERANK_W;
+      }
+    }
+    vectorCandidates.sort((a, b) => b.vectorScore - a.vectorScore);
+  }
+
+  // Rerank graph candidates
+  if (queryEmbedding && graphCandidates.length > 1) {
+    const RERANK_W = 0.4;
+    for (const c of graphCandidates) {
+      const factEmb = candidateEmbeddings.get(c.fact.id);
+      if (factEmb) {
+        const sim = cosineSim(queryEmbedding, factEmb);
+        c.graphScore = c.graphScore * (1 - RERANK_W) + sim * RERANK_W;
+      }
+    }
+    graphCandidates.sort((a, b) => b.graphScore - a.graphScore);
+  }
+  // Keyword candidates skip reranking — FTS scores shouldn't be overridden by embeddings
+  console.error(`[steno-search] Pre-fusion rerank: ${Date.now() - t1}ms`);
+
+  // 3. Merge all pre-reranked streams
   const allCandidates: Candidate[] = [
     ...vectorCandidates,
     ...keywordCandidates,
@@ -106,24 +161,33 @@ export async function search(
     };
   }
 
-  // 3. Score salience + recency on all candidates
+  // 4. Score salience + recency on all candidates
   const scoredCandidates = scoreSalience(allCandidates, {
     halfLifeDays: config.salienceHalfLifeDays,
     normalizationK: config.salienceNormalizationK,
   });
 
-  // 4. Fuse and rank
+  // 5. Fuse and rank
   const fusionResults = fuseAndRank(scoredCandidates, weights, limit);
 
-  // 5. Enrich with contradiction context
-  let results = await surfaceContradictions(config.storage, options.tenantId, fusionResults);
-
-  // 5b. Embedding-based re-ranking (deterministic, ~300ms via batch embed).
-  const t1 = Date.now();
-  if (results.length > 1) {
-    results = await rerank(effectiveEmbedding, options.query, results, limit);
+  // 5b. Lineage dedup — keep only the highest-scored version per lineage
+  //     Git-style append-only means multiple versions coexist. For normal queries,
+  //     show only the latest. For "includeHistory" queries, show all versions.
+  let dedupedResults = fusionResults;
+  if (!options.includeHistory) {
+    const lineageSeen = new Map<string, number>();
+    dedupedResults = fusionResults.filter((r, idx) => {
+      const lid = r.fact.lineageId;
+      if (!lid) return true;
+      if (lineageSeen.has(lid)) return false;
+      lineageSeen.set(lid, idx);
+      return true;
+    });
   }
-  console.error(`[steno-search] Rerank: ${Date.now() - t1}ms, Total so far: ${Date.now() - startTime}ms`);
+
+  // 6. Enrich with contradiction context
+  let results = await surfaceContradictions(config.storage, options.tenantId, dedupedResults);
+  console.error(`[steno-search] Fusion + dedup: ${Date.now() - t1}ms, Total: ${Date.now() - startTime}ms`);
 
   // 6. Optionally enrich with graph context
   if (options.includeGraph) {
@@ -161,4 +225,17 @@ export async function search(
     totalCandidates: allCandidates.length,
     durationMs: Date.now() - startTime,
   };
+}
+
+/** Fast cosine similarity for pre-fusion reranking */
+function cosineSim(a: number[], b: number[]): number {
+  if (a.length !== b.length || a.length === 0) return 0;
+  let dot = 0, normA = 0, normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i]! * b[i]!;
+    normA += a[i]! * a[i]!;
+    normB += b[i]! * b[i]!;
+  }
+  const denom = Math.sqrt(normA) * Math.sqrt(normB);
+  return denom === 0 ? 0 : dot / denom;
 }
