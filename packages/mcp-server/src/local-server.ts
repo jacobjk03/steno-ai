@@ -67,6 +67,29 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
         const factId = crypto.randomUUID();
         const embedding = await config.embedding.embed(memoryText);
 
+        // Ensure "User" entity exists and link fact to it
+        let userEntityId: string | undefined;
+        try {
+          const existing = await config.storage.findEntityByCanonicalName(config.tenantId, 'user', 'person');
+          if (existing) {
+            userEntityId = existing.id;
+          } else {
+            userEntityId = crypto.randomUUID();
+            await config.storage.createEntity({
+              id: userEntityId, tenantId: config.tenantId, name: 'User',
+              entityType: 'person', canonicalName: 'user', properties: {},
+              embedding: await config.embedding.embed('User'),
+              embeddingModel: config.embeddingModel, embeddingDim: config.embeddingDim,
+            });
+          }
+        } catch {}
+
+        const linkToUser = async (fid: string) => {
+          if (userEntityId) {
+            try { await config.storage.linkFactEntity(fid, userEntityId, 'mentioned'); } catch {}
+          }
+        };
+
         // Quick dedup check — see if very similar fact exists
         const matches = await config.storage.vectorSearch({
           embedding,
@@ -101,6 +124,7 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
             metadata: {},
             contradictionStatus: 'none',
           });
+          await linkToUser(factId);
           return {
             content: [{ type: 'text' as const, text: `Updated memory (replaced similar fact)` }],
           };
@@ -126,6 +150,7 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
           metadata: {},
           contradictionStatus: 'none',
         });
+        await linkToUser(factId);
         return {
           content: [{ type: 'text' as const, text: `Remembered` }],
         };
