@@ -14,6 +14,7 @@ import { recordAccesses } from '../feedback/tracker.js';
 import { CachedEmbeddingAdapter } from './embedding-cache.js';
 import { rerank } from './reranker.js';
 import { expandQueryHeuristic } from './query-expansion.js';
+import { extractTimeReference, scoreTemporalRelevance } from './temporal-scorer.js';
 
 export interface SearchConfig {
   storage: StorageAdapter;
@@ -145,6 +146,12 @@ export async function search(
     normalizationK: config.salienceNormalizationK,
   });
 
+  // 4b. Score temporal relevance if query has time reference
+  const timeRef = extractTimeReference(options.query);
+  if (timeRef) {
+    scoreTemporalRelevance(scoredCandidates, timeRef);
+  }
+
   // 5. Fuse and rank
   const fusionResults = fuseAndRank(scoredCandidates, weights, limit);
 
@@ -161,6 +168,19 @@ export async function search(
       lineageSeen.set(lid, idx);
       return true;
     });
+  }
+
+  // 5c. Knowledge chain resolution — if a result has metadata.relationType === 'updates',
+  // check if the fact it updates is ALSO in results. If so, suppress the older one.
+  const updatedFactIds = new Set<string>();
+  for (const r of dedupedResults) {
+    const meta = r.fact.metadata as Record<string, unknown> | undefined;
+    if (meta?.relationType === 'updates' && meta?.relatedFactId) {
+      updatedFactIds.add(meta.relatedFactId as string);
+    }
+  }
+  if (updatedFactIds.size > 0) {
+    dedupedResults = dedupedResults.filter(r => !updatedFactIds.has(r.fact.id));
   }
 
   // 6. Enrich with contradiction context

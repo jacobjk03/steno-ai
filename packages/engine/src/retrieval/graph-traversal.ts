@@ -183,6 +183,7 @@ export async function graphSearch(
             graphScore,
             recencyScore: 0,
             salienceScore: 0,
+            temporalScore: 0,
             source: 'graph' as const,
           });
         }
@@ -199,7 +200,7 @@ export async function graphSearch(
             if (!candidateMap.has(fact.id)) {
               candidateMap.set(fact.id, {
                 fact, vectorScore: 0, keywordScore: 0, graphScore,
-                recencyScore: 0, salienceScore: 0, source: 'graph' as const,
+                recencyScore: 0, salienceScore: 0, temporalScore: 0, source: 'graph' as const,
               });
             }
           }

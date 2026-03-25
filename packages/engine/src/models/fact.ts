@@ -45,6 +45,8 @@ export const FactSchema = z.object({
   eventDate: z.coerce.date().nullable().optional(),
   /** When the conversation/document was authored */
   documentDate: z.coerce.date().nullable().optional(),
+  /** The original conversation chunk this fact was extracted from */
+  sourceChunk: z.string().max(10000).nullable().optional().default(null),
   createdAt: z.coerce.date(),
 });
 
@@ -73,6 +75,11 @@ export const CreateFactSchema = z.object({
   modality: z.enum(MODALITIES).default('text'),
   tags: z.array(z.string().max(100)).max(20).default([]),
   metadata: z.record(z.string(), z.unknown()).default({}),
+  sourceChunk: z.string().max(10000).optional(),
+  /** When the event described in the fact actually occurred */
+  eventDate: z.coerce.date().optional(),
+  /** When the conversation/document was authored */
+  documentDate: z.coerce.date().optional(),
 });
 
 export type CreateFact = z.infer<typeof CreateFactSchema>;

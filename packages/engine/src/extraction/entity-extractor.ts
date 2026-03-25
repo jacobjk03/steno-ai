@@ -85,6 +85,17 @@ const RELATION_SYNONYMS: Record<string, string> = {
   interested_in: 'prefers',
   attracted_to: 'prefers',
   likes: 'prefers',
+  replaces: 'updates',
+  supersedes: 'updates',
+  overrides: 'updates',
+  corrects: 'updates',
+  supplements: 'extends',
+  refines: 'extends',
+  elaborates: 'extends',
+  details: 'extends',
+  infers: 'derives',
+  implies: 'derives',
+  combines: 'derives',
 };
 
 function normalizeRelation(relation: string): string {

@@ -32,6 +32,7 @@ export async function vectorSearch(
     graphScore: 0,
     recencyScore: 0,
     salienceScore: 0,
+    temporalScore: 0,
     source: 'vector' as const,
   }));
 }

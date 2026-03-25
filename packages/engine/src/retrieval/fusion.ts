@@ -10,6 +10,7 @@ export interface FusionResult {
     graphScore: number;
     recencyScore: number;
     salienceScore: number;
+    temporalScore: number;
   };
   source: string;
   triggeredBy?: string;
@@ -37,17 +38,19 @@ export function fuseAndRank(
     weights.keyword +
     weights.graph +
     weights.recency +
-    weights.salience;
+    weights.salience +
+    weights.temporal;
 
   const w: FusionWeights =
     sum === 0
-      ? { vector: 0.2, keyword: 0.2, graph: 0.2, recency: 0.2, salience: 0.2 }
+      ? { vector: 1/6, keyword: 1/6, graph: 1/6, recency: 1/6, salience: 1/6, temporal: 1/6 }
       : {
           vector: weights.vector / sum,
           keyword: weights.keyword / sum,
           graph: weights.graph / sum,
           recency: weights.recency / sum,
           salience: weights.salience / sum,
+          temporal: weights.temporal / sum,
         };
 
   // 2. Deduplicate by fact ID — keep highest score per signal
@@ -60,6 +63,7 @@ export function fuseAndRank(
       graphScore: number;
       recencyScore: number;
       salienceScore: number;
+      temporalScore: number;
       source: string;
       triggeredBy?: string;
     }
@@ -73,6 +77,7 @@ export function fuseAndRank(
       existing.graphScore = Math.max(existing.graphScore, c.graphScore);
       existing.recencyScore = Math.max(existing.recencyScore, c.recencyScore);
       existing.salienceScore = Math.max(existing.salienceScore, c.salienceScore);
+      existing.temporalScore = Math.max(existing.temporalScore, c.temporalScore);
       if (c.triggeredBy) existing.triggeredBy = c.triggeredBy;
     } else {
       factMap.set(c.fact.id, {
@@ -82,6 +87,7 @@ export function fuseAndRank(
         graphScore: c.graphScore,
         recencyScore: c.recencyScore,
         salienceScore: c.salienceScore,
+        temporalScore: c.temporalScore,
         source: c.source,
         triggeredBy: c.triggeredBy,
       });
@@ -96,7 +102,8 @@ export function fuseAndRank(
       entry.keywordScore * w.keyword +
       entry.graphScore * w.graph +
       entry.recencyScore * w.recency +
-      entry.salienceScore * w.salience;
+      entry.salienceScore * w.salience +
+      entry.temporalScore * w.temporal;
 
     results.push({
       fact: entry.fact,
@@ -107,6 +114,7 @@ export function fuseAndRank(
         graphScore: entry.graphScore,
         recencyScore: entry.recencyScore,
         salienceScore: entry.salienceScore,
+        temporalScore: entry.temporalScore,
       },
       source: entry.source,
       triggeredBy: entry.triggeredBy,

@@ -17,6 +17,7 @@ export const StenoConfigSchema = z.object({
       graph: z.number().min(0).max(1).default(0.2),
       recency: z.number().min(0).max(1).default(0.15),
       salience: z.number().min(0).max(1).default(0.15),
+      temporal: z.number().min(0).max(1).default(0.20),
     })
     .default({}),
 });
@@ -60,6 +61,9 @@ export const EDGE_TYPES = [
   'temporal',
   'contradictory',
   'hierarchical',
+  'updates',    // new fact supersedes old one (knowledge chain)
+  'extends',    // new fact adds detail to old one
+  'derives',    // new fact is inferred from combining others
 ] as const;
 export type EdgeType = (typeof EDGE_TYPES)[number];
 

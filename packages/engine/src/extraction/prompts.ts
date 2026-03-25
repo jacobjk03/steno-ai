@@ -47,10 +47,18 @@ For identity/trait facts, state them DIRECTLY:
    - If Melanie says "I painted a sunrise last year" → "Melanie painted a sunrise in 2022"
    - If Melanie says "I ran a charity race" → "Melanie ran a charity race"
 
+8. For EVERY fact, include "ed" (event date) if the fact describes something that happened at a specific time.
+   - "User went to the gym on May 7" → ed: "2023-05-07"
+   - "User prefers dark mode" → ed: null (timeless preference)
+   If the conversation header says "[This conversation took place on 8 May, 2023]", set "dd" to "2023-05-08" for all facts.
+
 ## OUTPUT
 
 Return ONLY a JSON object:
-{"facts": [{"t": "fact text here", "i": 0.7}, {"t": "another fact", "i": 0.3}]}
+{"facts": [{"t": "fact text here", "i": 0.7, "ed": "2023-05-07", "dd": "2023-05-08"}, {"t": "another fact", "i": 0.3, "ed": null, "dd": "2023-05-08"}]}
+
+- ed (eventDate): ISO date string of WHEN the event occurred, or null if not temporal
+- dd (documentDate): ISO date string of when the conversation took place, from context header
 
 Score importance (i) from 0.0 to 1.0:
 - 0.9-1.0: Identity, health conditions, allergies, life events (birth, marriage, death)
@@ -108,7 +116,8 @@ export const DEDUP_PROMPT = `You are a memory deduplication engine. Given NEW fa
 
 For each new fact, decide:
 - ADD: entirely new information, not covered by existing facts
-- UPDATE: replaces or refines an existing fact (provide the index of the existing fact)
+- UPDATE: replaces or refines an existing fact (provide the index). The new fact SUPERSEDES the old one.
+- EXTEND: adds new detail to an existing fact WITHOUT contradicting it (provide the index)
 - NOOP: already covered by an existing fact — skip it
 - CONTRADICT: conflicts with an existing fact (provide the index)
 
@@ -116,11 +125,13 @@ Return a JSON array:
 [
   {"fact": "...", "operation": "ADD"},
   {"fact": "...", "operation": "UPDATE", "existing_index": 3},
+  {"fact": "...", "operation": "EXTEND", "existing_index": 5},
   {"fact": "...", "operation": "NOOP"},
   {"fact": "...", "operation": "CONTRADICT", "existing_index": 7}
 ]
 
-Be conservative: prefer NOOP over ADD if the information is substantially similar.`;
+Be conservative: prefer NOOP over ADD if the information is substantially similar.
+Prefer EXTEND over UPDATE when the new fact adds detail without changing the core meaning.`;
 
 // =============================================================================
 // PROMPT BUILDERS

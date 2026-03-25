@@ -70,6 +70,7 @@ export function initializeDatabase(db: Database.Database, config: { embeddingDim
       metadata TEXT NOT NULL DEFAULT '{}',
       event_date TEXT,
       document_date TEXT,
+      source_chunk TEXT,
       created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now') || 'Z')
     );
     CREATE INDEX IF NOT EXISTS idx_facts_tenant_scope ON facts(tenant_id, scope, scope_id);

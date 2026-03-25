@@ -33,6 +33,7 @@ export async function keywordSearch(
     graphScore: 0,
     recencyScore: 0,
     salienceScore: 0,
+    temporalScore: 0,
     source: 'keyword' as const,
   }));
 }

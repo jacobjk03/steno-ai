@@ -35,6 +35,10 @@ vi.mock('../../src/feedback/tracker.js', () => ({
 vi.mock('../../src/retrieval/embedding-cache.js', () => ({
   CachedEmbeddingAdapter: vi.fn().mockImplementation((inner: EmbeddingAdapter) => inner),
 }));
+vi.mock('../../src/retrieval/temporal-scorer.js', () => ({
+  extractTimeReference: vi.fn().mockReturnValue(null),
+  scoreTemporalRelevance: vi.fn(),
+}));
 
 import { compoundSearchSignal } from '../../src/retrieval/compound-search.js';
 import { graphSearch } from '../../src/retrieval/graph-traversal.js';
@@ -101,6 +105,7 @@ function makeCandidate(
     graphScore: 0,
     recencyScore: 0,
     salienceScore: 0,
+    temporalScore: 0,
     source: 'vector',
     ...candidateOverrides,
   };
@@ -156,6 +161,7 @@ function makeSearchResultFull(factOverrides: Partial<Fact> = {}, resultOverrides
       graphScore: 0.3,
       recencyScore: 0.7,
       salienceScore: 0.6,
+      temporalScore: 0,
     },
     ...resultOverrides,
   };
@@ -283,6 +289,7 @@ function setupHappyPath() {
       graphScore: c.graphScore,
       recencyScore: 0.5,
       salienceScore: 0.6,
+      temporalScore: 0,
     },
     source: c.source,
     triggeredBy: c.triggeredBy,

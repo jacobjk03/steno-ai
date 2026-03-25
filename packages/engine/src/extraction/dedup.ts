@@ -69,7 +69,7 @@ async function classifyWithLLM(
   llm: LLMAdapter,
   candidateContent: string,
   existingMatches: Array<{ id: string; lineageId: string; content: string; similarity: number }>,
-): Promise<Pick<ExtractedFact, 'operation' | 'existingLineageId' | 'contradictsFactId'>> {
+): Promise<Pick<ExtractedFact, 'operation' | 'existingLineageId' | 'contradictsFactId' | 'relationType' | 'relatedFactId'>> {
   const messages: LLMMessage[] = [
     {
       role: 'system',

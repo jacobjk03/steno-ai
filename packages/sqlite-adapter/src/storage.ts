@@ -139,6 +139,7 @@ function rowToFact(row: Record<string, unknown>): Fact {
     modality: row['modality'] as Fact['modality'],
     tags: parseJsonOr(row['tags'] as string, []),
     metadata: parseJsonOr(row['metadata'] as string, {}),
+    sourceChunk: (row['source_chunk'] as string) ?? null,
     createdAt: new Date(row['created_at'] as string),
   };
 }
@@ -502,8 +503,8 @@ export class SQLiteStorageAdapter implements StorageAdapter {
          embedding_model, embedding_dim, version, lineage_id, valid_from, valid_until,
          operation, parent_id, importance, frequency, last_accessed, decay_score,
          contradiction_status, contradicts_id, source_type, source_ref, confidence,
-         original_content, extraction_id, extraction_tier, modality, tags, metadata, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         original_content, extraction_id, extraction_tier, modality, tags, metadata, source_chunk, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         rest.id,
@@ -535,6 +536,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
         rest.modality ?? 'text',
         JSON.stringify(rest.tags ?? []),
         JSON.stringify(rest.metadata ?? {}),
+        rest.sourceChunk ?? null,
         ts,
       );
 

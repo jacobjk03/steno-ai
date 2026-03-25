@@ -44,6 +44,7 @@ export async function matchTriggers(
               graphScore: 0,
               recencyScore: 0,
               salienceScore: 0,
+              temporalScore: 0,
               source: 'trigger',
               triggeredBy: trigger.id,
             });
@@ -64,6 +65,7 @@ export async function matchTriggers(
                 graphScore: 0,
                 recencyScore: 0,
                 salienceScore: 0,
+                temporalScore: 0,
                 source: 'trigger',
                 triggeredBy: trigger.id,
               });

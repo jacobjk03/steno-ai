@@ -17,6 +17,8 @@ function createMockSteno(): Steno {
           scopeId: 'user_1',
           createdAt: '2025-01-01',
           updatedAt: '2025-01-01',
+          eventDate: '2025-06-15',
+          sourceChunk: 'I had the best margherita pizza yesterday and it reminded me how much I love pizza.',
         },
         {
           id: 'fact_2',
@@ -81,8 +83,10 @@ describe('MCP Server', () => {
       expect(mockSteno.search).toHaveBeenCalledWith('user_1', 'food preferences', 5);
 
       const text = (result.content as Array<{ type: string; text: string }>)[0]!.text;
-      expect(text).toContain('1. [0.95] User loves pizza (id: fact_1)');
-      expect(text).toContain('2. [0.87] User works at Google (id: fact_2)');
+      expect(text).toContain('[Memory] User loves pizza (score: 0.95, event: 2025-06-15)');
+      expect(text).toContain('[Source Context] I had the best margherita pizza yesterday');
+      expect(text).toContain('[Memory] User works at Google (score: 0.87)');
+      expect(text).toContain('---');
     });
 
     it('uses custom limit when provided', async () => {

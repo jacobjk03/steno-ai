@@ -38,8 +38,8 @@ const DEFAULT_CONFIG: Required<WindowConfig> = {
   segmentSize: 800,
   hPrev: 2,
   hNext: 1,
-  minInputLength: 8000, // Only window very long inputs — short/medium go through as single pass
-  maxSegments: 4,       // Cap at 4 segments to limit LLM costs
+  minInputLength: 3500, // Window multi-turn conversations for pronoun/temporal resolution
+  maxSegments: 6,       // Allow more segments for better coverage
 };
 
 /**

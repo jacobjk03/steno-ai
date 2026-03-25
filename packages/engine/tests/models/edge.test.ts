@@ -30,9 +30,19 @@ describe('EdgeSchema', () => {
   });
 
   it('accepts all valid edgeType values', () => {
-    for (const edgeType of ['associative', 'causal', 'temporal', 'contradictory', 'hierarchical'] as const) {
+    for (const edgeType of ['associative', 'causal', 'temporal', 'contradictory', 'hierarchical', 'updates', 'extends', 'derives'] as const) {
       const result = EdgeSchema.safeParse({ ...baseEdge, edgeType });
       expect(result.success).toBe(true);
+    }
+  });
+
+  it('should accept relational versioning edge types', () => {
+    for (const edgeType of ['updates', 'extends', 'derives'] as const) {
+      const result = EdgeSchema.safeParse({ ...baseEdge, edgeType });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.edgeType).toBe(edgeType);
+      }
     }
   });
 

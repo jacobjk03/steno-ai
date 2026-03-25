@@ -17,11 +17,12 @@ export interface SearchOptions {
 
 /** Configurable fusion weights (should sum to 1.0 — normalized if not) */
 export interface FusionWeights {
-  vector: number;    // default 0.35
+  vector: number;    // default 0.30
   keyword: number;   // default 0.15
-  graph: number;     // default 0.20
-  recency: number;   // default 0.15
-  salience: number;  // default 0.15
+  graph: number;     // default 0.15
+  recency: number;   // default 0.10
+  salience: number;  // default 0.10
+  temporal: number;  // default 0.20
 }
 
 /** A single search result with all signal scores */
@@ -34,6 +35,7 @@ export interface SearchResult {
     graphScore: number;
     recencyScore: number;
     salienceScore: number;
+    temporalScore: number;
   };
   triggeredBy?: string;       // trigger ID if surfaced by anticipatory retrieval
   contradiction?: {
@@ -64,14 +66,16 @@ export interface Candidate {
   graphScore: number;         // 0 if not from graph traversal
   recencyScore: number;       // filled in by salience scorer
   salienceScore: number;      // filled in by salience scorer
+  temporalScore: number;      // filled in by temporal scorer
   source: 'vector' | 'keyword' | 'graph' | 'trigger';
   triggeredBy?: string;       // trigger ID if from trigger matcher
 }
 
 export const DEFAULT_FUSION_WEIGHTS: FusionWeights = {
-  vector: 0.35,
+  vector: 0.30,
   keyword: 0.15,
-  graph: 0.20,
-  recency: 0.15,
-  salience: 0.15,
+  graph: 0.15,
+  recency: 0.10,
+  salience: 0.10,
+  temporal: 0.20,
 };

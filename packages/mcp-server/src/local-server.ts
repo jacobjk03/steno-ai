@@ -212,12 +212,21 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
       }
 
       const text = results.results
-        .map((r, i) => {
+        .map((r) => {
+          const dateParts: string[] = [];
+          if (r.fact.eventDate) dateParts.push(`event: ${new Date(r.fact.eventDate).toISOString().slice(0, 10)}`);
+          if (r.fact.documentDate) dateParts.push(`doc: ${new Date(r.fact.documentDate).toISOString().slice(0, 10)}`);
+          const dateStr = dateParts.length > 0 ? `, ${dateParts.join(', ')}` : '';
           const signals = Object.entries(r.signals)
             .filter(([, v]) => v > 0)
             .map(([k, v]) => `${k.replace('Score', '')}=${(v as number).toFixed(2)}`)
             .join(', ');
-          return `${i + 1}. [${r.score.toFixed(2)}] ${r.fact.content}${signals ? `  (${signals})` : ''}`;
+          let line = `[Memory] ${r.fact.content} (score: ${r.score.toFixed(2)}${dateStr}${signals ? `, ${signals}` : ''})`;
+          if (r.fact.sourceChunk) {
+            line += `\n[Source Context] ${r.fact.sourceChunk}`;
+          }
+          line += '\n---';
+          return line;
         })
         .join('\n');
 

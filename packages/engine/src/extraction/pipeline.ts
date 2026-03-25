@@ -273,7 +273,13 @@ async function executeExtraction(
       extractionTier: tierUsed === 'multi_tier' ? 'heuristic' : tierUsed,
       modality: fact.modality,
       tags: fact.tags,
-      metadata: {},
+      metadata: {
+        ...(fact.relationType && { relationType: fact.relationType }),
+        ...(fact.relatedFactId && { relatedFactId: fact.relatedFactId }),
+      },
+      sourceChunk: fact.sourceChunk,
+      eventDate: fact.eventDate,
+      documentDate: fact.documentDate,
     });
 
     // Track counts — Git-style append-only: NEVER invalidate old facts.

@@ -51,6 +51,7 @@ function makeCandidate(
     graphScore: 0,
     recencyScore: 0,
     salienceScore: 0,
+    temporalScore: 0,
     source: 'vector',
     ...candidateOverrides,
   };
@@ -82,11 +83,12 @@ describe('fuseAndRank', () => {
 
       expect(results).toHaveLength(1);
       const expected =
-        0.9 * 0.35 +
+        0.9 * 0.30 +
         0.5 * 0.15 +
-        0.3 * 0.2 +
-        0.7 * 0.15 +
-        0.6 * 0.15;
+        0.3 * 0.15 +
+        0.7 * 0.10 +
+        0.6 * 0.10 +
+        0.0 * 0.20;
       expect(results[0].score).toBeCloseTo(expected, 10);
       expect(results[0].fact.id).toBe('fact-single');
     });
@@ -99,7 +101,8 @@ describe('fuseAndRank', () => {
         DEFAULT_FUSION_WEIGHTS.keyword +
         DEFAULT_FUSION_WEIGHTS.graph +
         DEFAULT_FUSION_WEIGHTS.recency +
-        DEFAULT_FUSION_WEIGHTS.salience;
+        DEFAULT_FUSION_WEIGHTS.salience +
+        DEFAULT_FUSION_WEIGHTS.temporal;
       expect(sum).toBeCloseTo(1.0, 10);
     });
   });
@@ -112,8 +115,9 @@ describe('fuseAndRank', () => {
         graph: 2,
         recency: 2,
         salience: 2,
+        temporal: 2,
       };
-      // Sum = 10, so each normalized weight = 0.2
+      // Sum = 12, so each normalized weight = 1/6
       const candidate = makeCandidate(
         { id: 'fact-norm' },
         {
@@ -128,8 +132,8 @@ describe('fuseAndRank', () => {
 
       const results = fuseAndRank([candidate], weights, 10);
 
-      // Only vector contributes: 1.0 * 0.2 = 0.2
-      expect(results[0].score).toBeCloseTo(0.2, 10);
+      // Only vector contributes: 1.0 * (1/6) ≈ 0.1667
+      expect(results[0].score).toBeCloseTo(1/6, 10);
     });
 
     it('all-zero weights fallback to equal distribution (0.2 each)', () => {
@@ -139,6 +143,7 @@ describe('fuseAndRank', () => {
         graph: 0,
         recency: 0,
         salience: 0,
+        temporal: 0,
       };
       const candidate = makeCandidate(
         { id: 'fact-zero' },
@@ -154,8 +159,8 @@ describe('fuseAndRank', () => {
 
       const results = fuseAndRank([candidate], weights, 10);
 
-      // Equal weights: 1.0*0.2 + 0.5*0.2 + 0*0.2 + 0*0.2 + 0*0.2 = 0.3
-      expect(results[0].score).toBeCloseTo(0.3, 10);
+      // Equal weights (1/6 each): 1.0*(1/6) + 0.5*(1/6) + 0*(1/6) + 0*(1/6) + 0*(1/6) + 0*(1/6) = 0.25
+      expect(results[0].score).toBeCloseTo(1.5/6, 10);
     });
   });
 
@@ -235,6 +240,7 @@ describe('fuseAndRank', () => {
         graph: 0.1,
         recency: 0.2,
         salience: 0.1,
+        temporal: 0,
       };
       const candidate = makeCandidate(
         { id: 'fact-ws' },
@@ -330,6 +336,7 @@ describe('fuseAndRank', () => {
         graphScore: 0.42,
         recencyScore: 0.73,
         salienceScore: 0.61,
+        temporalScore: 0,
       });
     });
   });
@@ -417,6 +424,7 @@ describe('fuseAndRank', () => {
           graphScore: 1.0,
           recencyScore: 1.0,
           salienceScore: 1.0,
+          temporalScore: 1.0,
           source: 'vector',
         },
       );

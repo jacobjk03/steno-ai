@@ -73,6 +73,7 @@ export async function compoundSearchSignal(
         graphScore: 0,
         recencyScore: 0,
         salienceScore: 0,
+        temporalScore: 0,
         source: 'vector',
       });
     } else {
@@ -83,6 +84,7 @@ export async function compoundSearchSignal(
         graphScore: 0,
         recencyScore: 0,
         salienceScore: 0,
+        temporalScore: 0,
         source: 'keyword',
       });
     }

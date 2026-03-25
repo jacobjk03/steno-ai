@@ -56,12 +56,23 @@ export function createServer(steno: Steno): McpServer {
     },
     async ({ user_id, query, limit }) => {
       const results = await steno.search(user_id, query, limit ?? 5);
-      const text =
-        results.results.length > 0
-          ? results.results
-              .map((r, i) => `${i + 1}. [${r.score.toFixed(2)}] ${r.content} (id: ${r.id})`)
-              .join('\n')
-          : 'No memories found.';
+      if (results.results.length === 0) {
+        return { content: [{ type: 'text' as const, text: 'No memories found.' }] };
+      }
+      const text = results.results
+        .map((r: any) => {
+          const dateParts: string[] = [];
+          if (r.eventDate) dateParts.push(`event: ${new Date(r.eventDate).toISOString().slice(0, 10)}`);
+          if (r.documentDate) dateParts.push(`doc: ${new Date(r.documentDate).toISOString().slice(0, 10)}`);
+          const dateStr = dateParts.length > 0 ? `, ${dateParts.join(', ')}` : '';
+          let line = `[Memory] ${r.content} (score: ${r.score.toFixed(2)}${dateStr})`;
+          if (r.sourceChunk) {
+            line += `\n[Source Context] ${r.sourceChunk}`;
+          }
+          line += '\n---';
+          return line;
+        })
+        .join('\n');
       return {
         content: [{ type: 'text' as const, text }],
       };

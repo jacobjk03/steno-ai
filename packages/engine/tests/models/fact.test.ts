@@ -172,6 +172,23 @@ describe('FactSchema', () => {
       expect(result.success).toBe(true);
     }
   });
+
+  it('should accept sourceChunk as optional field', () => {
+    const chunk = 'User said: I prefer dark mode for all my editors.';
+    const result = FactSchema.safeParse({ ...baseFullFact, sourceChunk: chunk });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.sourceChunk).toBe(chunk);
+    }
+  });
+
+  it('should default sourceChunk to null', () => {
+    const result = FactSchema.safeParse(baseFullFact);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.sourceChunk).toBeNull();
+    }
+  });
 });
 
 describe('CreateFactSchema', () => {

@@ -25,6 +25,16 @@ export interface ExtractedFact {
   contradictsFactId?: string;
   /** Canonical names of entities mentioned in THIS fact (for precise fact-entity linking) */
   entityCanonicalNames?: string[];
+  /** The conversation segment this fact was extracted from */
+  sourceChunk?: string;
+  /** When the event described in the fact actually occurred */
+  eventDate?: Date;
+  /** When the conversation/document was authored */
+  documentDate?: Date;
+  /** If this fact relates to an existing one: 'updates' | 'extends' | 'derives' */
+  relationType?: 'updates' | 'extends' | 'derives';
+  /** The ID of the existing fact this relates to (set by dedup) */
+  relatedFactId?: string;
 }
 
 export interface ExtractedEntity {

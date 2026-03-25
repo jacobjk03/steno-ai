@@ -67,7 +67,7 @@ async function initDefaultTenant(storage: SQLiteStorageAdapter, tenantId: string
         decayHalfLifeDays: 30,
         decayNormalizationK: 50,
         maxFactsPerScope: 10000,
-        retrievalWeights: { vector: 0.35, keyword: 0.15, graph: 0.2, recency: 0.15, salience: 0.15 },
+        retrievalWeights: { vector: 0.30, keyword: 0.15, graph: 0.15, recency: 0.10, salience: 0.10, temporal: 0.20 },
       },
     });
   }

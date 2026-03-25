@@ -162,7 +162,7 @@ async function main() {
   console.log(`  From triggers: ${triggerResults.candidates.length}`);
 
   const scored = scoreSalience(allCandidates);
-  const fused = fuseAndRank(scored, { vector: 0.35, keyword: 0.15, graph: 0.20, recency: 0.15, salience: 0.15 }, 20);
+  const fused = fuseAndRank(scored, { vector: 0.30, keyword: 0.15, graph: 0.15, recency: 0.10, salience: 0.10, temporal: 0.20 }, 20);
 
   console.log(`\nFused top 10 (after fusion with weights):`);
   for (const r of fused.slice(0, 10)) {
