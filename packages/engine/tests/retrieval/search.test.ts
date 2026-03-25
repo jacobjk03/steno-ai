@@ -325,8 +325,9 @@ describe('search orchestrator', () => {
 
       const response = await search(config, options);
 
-      // Compound search called (replaces separate vector + keyword)
-      expect(mockCompoundSearch).toHaveBeenCalledOnce();
+      // Compound search called for each expanded query (multi-query expansion)
+      expect(mockCompoundSearch).toHaveBeenCalled();
+      expect(mockCompoundSearch.mock.calls.length).toBeGreaterThanOrEqual(1);
       expect(mockGraphSearch).toHaveBeenCalledOnce();
       expect(mockMatchTriggers).toHaveBeenCalledOnce();
 
