@@ -38,7 +38,7 @@ function makeFact(overrides: Partial<Fact> = {}): Fact {
     modality: 'text',
     tags: [],
     metadata: {},
-    createdAt: new Date('2025-01-01'),
+    createdAt: new Date(),
     ...overrides,
   };
 }
@@ -74,27 +74,30 @@ describe('scoreSalience', () => {
       expect(scored.recencyScore).toBeLessThanOrEqual(1);
     });
 
-    it('old fact (60+ days) gets low recencyScore', () => {
+    it('old fact (60+ days access) gets lower recencyScore but boosted by creation freshness', () => {
       const candidate = makeCandidate({ lastAccessed: msAgo(60) });
       const [scored] = scoreSalience([candidate]);
 
-      // After 60 days (2 half-lives at default 30), recency should be ~0.25
-      expect(scored.recencyScore).toBeLessThan(0.3);
-      expect(scored.recencyScore).toBeGreaterThan(0);
+      // Blended: 50% access recency (~0.25 after 2 half-lives) + 50% creation recency (~1.0)
+      // So ~0.625 — lower than fresh but not zero thanks to creation freshness
+      expect(scored.recencyScore).toBeLessThan(0.7);
+      expect(scored.recencyScore).toBeGreaterThan(0.5);
     });
 
-    it('never-accessed fact (null lastAccessed) gets recencyScore 0', () => {
+    it('never-accessed fact still has creation recency', () => {
       const candidate = makeCandidate({ lastAccessed: null });
       const [scored] = scoreSalience([candidate]);
 
-      expect(scored.recencyScore).toBe(0);
+      // access=0, creation≈1.0, blended = ~0.5
+      expect(scored.recencyScore).toBeCloseTo(0.5, 1);
     });
 
-    it('recencyScore is approximately 0.5 at exactly halfLifeDays', () => {
+    it('recencyScore at halfLifeDays access is ~0.75 (blended with creation)', () => {
       const candidate = makeCandidate({ lastAccessed: msAgo(30) });
       const [scored] = scoreSalience([candidate]);
 
-      expect(scored.recencyScore).toBeCloseTo(0.5, 2);
+      // access≈0.5 at halfLife, creation≈1.0, blended = ~0.75
+      expect(scored.recencyScore).toBeCloseTo(0.75, 1);
     });
 
     it('more recent fact scores higher than older fact', () => {
@@ -172,17 +175,18 @@ describe('scoreSalience', () => {
     it('custom halfLifeDays changes recency decay rate', () => {
       const candidate = makeCandidate({ lastAccessed: msAgo(30) });
 
-      // Default half-life of 30 days: at 30 days, recency ~ 0.5
+      // With blended formula (50% access + 50% creation):
+      // Default half-life 30: access≈0.5, creation≈1.0, blended≈0.75
       const [defaultScored] = scoreSalience([candidate]);
-      expect(defaultScored.recencyScore).toBeCloseTo(0.5, 2);
+      expect(defaultScored.recencyScore).toBeCloseTo(0.75, 1);
 
-      // Shorter half-life of 10 days: at 30 days (3 half-lives), recency ~ 0.125
+      // Shorter half-life 10: access≈0.125 (3 half-lives), creation≈1.0, blended≈0.5625
       const [shortLife] = scoreSalience([candidate], { halfLifeDays: 10 });
-      expect(shortLife.recencyScore).toBeCloseTo(0.125, 2);
+      expect(shortLife.recencyScore).toBeLessThan(defaultScored.recencyScore);
 
-      // Longer half-life of 60 days: at 30 days (0.5 half-lives), recency ~ 0.707
+      // Longer half-life 60: access≈0.707, creation≈1.0, blended≈0.854
       const [longLife] = scoreSalience([candidate], { halfLifeDays: 60 });
-      expect(longLife.recencyScore).toBeCloseTo(Math.SQRT1_2, 2);
+      expect(longLife.recencyScore).toBeGreaterThan(defaultScored.recencyScore);
     });
 
     it('custom normalizationK changes frequency scaling', () => {

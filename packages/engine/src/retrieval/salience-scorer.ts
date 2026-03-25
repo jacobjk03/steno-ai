@@ -23,16 +23,25 @@ export function scoreSalience(
   return candidates.map(candidate => {
     const { fact } = candidate;
 
-    // Recency: pure time decay based on last access
-    // exp(-lambda * days_since_last_access) where lambda = ln(2) / halfLifeDays
+    // Recency: blend of access recency + creation recency
+    // Access recency = how recently the fact was recalled (reinforcement)
+    // Creation recency = how recently the fact was created (freshness)
+    // Git-style versioning needs creation recency so newer versions of
+    // the same lineage naturally rank higher.
+    const lambda = Math.LN2 / halfLifeDays;
+
     const daysSinceAccess = fact.lastAccessed
       ? (Date.now() - new Date(fact.lastAccessed).getTime()) / (1000 * 60 * 60 * 24)
       : Infinity;
+    const accessRecency = fact.lastAccessed ? Math.exp(-lambda * daysSinceAccess) : 0;
 
-    const lambda = Math.LN2 / halfLifeDays;
-    const recencyScore = fact.lastAccessed
-      ? Math.exp(-lambda * daysSinceAccess)
-      : 0;
+    const daysSinceCreation = fact.createdAt
+      ? (Date.now() - new Date(fact.createdAt).getTime()) / (1000 * 60 * 60 * 24)
+      : Infinity;
+    const creationRecency = fact.createdAt ? Math.exp(-lambda * daysSinceCreation) : 0;
+
+    // Blend: 50% access recency + 50% creation recency
+    const recencyScore = 0.5 * accessRecency + 0.5 * creationRecency;
 
     // Salience: importance x frequency factor
     // This captures "how important is this fact AND how often has it been reinforced"
