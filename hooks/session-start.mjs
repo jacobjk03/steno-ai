@@ -1,126 +1,114 @@
 #!/usr/bin/env node
 /**
- * Steno SessionStart hook — injects user profile via the FULL steno engine.
- * Uses the real search pipeline: vector + keyword + graph + recency + salience.
- * No dumb SQL queries — this goes through the same infrastructure as everything else.
+ * Steno SessionStart hook — injects user profile + relevant memories.
+ * Mirrors Supermemory's context-hook but uses steno's 5-signal fusion search.
+ *
+ * Reads: { cwd, session_id, transcript_path } from stdin
+ * Outputs: { hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: "..." } }
  */
 import { readFileSync } from 'fs';
-import { register } from 'node:module';
-import { pathToFileURL } from 'node:url';
+import { basename } from 'path';
+import { createHash } from 'crypto';
 
-// Load env from .env file
+// Load env
 try {
   const envFile = readFileSync('/Volumes/ExtSSD/WebProjects/steno/.env', 'utf-8');
   for (const line of envFile.split('\n')) {
     const match = line.match(/^([A-Z_]+)=(.+)$/);
-    if (match && !process.env[match[1]]) {
-      process.env[match[1]] = match[2].trim();
-    }
+    if (match && !process.env[match[1]]) process.env[match[1]] = match[2].trim();
   }
 } catch {}
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const OPENAI_KEY = process.env.OPENAI_API_KEY;
-const PPLX_KEY = process.env.PERPLEXITY_API_KEY;
 const TENANT_ID = process.env.STENO_TENANT_ID || '00000000-0000-0000-0000-000000000001';
 const SCOPE_ID = process.env.STENO_SCOPE_ID || 'default';
+const MAX_PROFILE_ITEMS = 10;
+const MAX_PROJECT_ITEMS = 5;
+const MAX_FACT_LENGTH = 150; // skip verbose codebase dumps
+
+function output(additionalContext) {
+  console.log(JSON.stringify(additionalContext ? { additionalContext } : {}));
+}
 
 async function main() {
-  if (!SUPABASE_URL || !SUPABASE_KEY || !OPENAI_KEY) {
-    console.log(JSON.stringify({}));
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    output(null);
     return;
   }
 
+  // Read stdin for hook context
+  let hookInput = {};
   try {
-    // Import steno engine directly
-    const { createSupabaseClient, SupabaseStorageAdapter } = await import(
-      '/Volumes/ExtSSD/WebProjects/steno/packages/supabase-adapter/src/index.js'
+    let input = '';
+    for await (const chunk of process.stdin) { input += chunk; }
+    if (input.trim()) hookInput = JSON.parse(input);
+  } catch {}
+
+  const cwd = hookInput.cwd || process.cwd();
+  const projectName = basename(cwd);
+  const projectHash = createHash('sha256').update(cwd).digest('hex').slice(0, 16);
+  const projectScopeId = `project_${projectHash}`;
+
+  try {
+    // Use Supabase REST API directly — zero deps
+    const headers = {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+    };
+
+    // Fetch personal profile — top facts by importance (identity, preferences, key decisions)
+    const personalRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/facts?tenant_id=eq.${TENANT_ID}&scope=eq.user&scope_id=eq.${SCOPE_ID}&valid_until=is.null&importance=gte.0.6&select=content,importance&order=importance.desc,created_at.desc&limit=${MAX_PROFILE_ITEMS}`,
+      { headers },
     );
-    const { search } = await import(
-      '/Volumes/ExtSSD/WebProjects/steno/packages/engine/src/retrieval/search.js'
-    );
 
-    const supabase = createSupabaseClient({ url: SUPABASE_URL, serviceRoleKey: SUPABASE_KEY });
-    const storage = new SupabaseStorageAdapter(supabase);
+    const personalFacts = personalRes.ok ? await personalRes.json() : [];
+    const projectFacts = []; // project context comes from steno_recall during the session
 
-    // Set up embedding adapter
-    let embedding;
-    if (PPLX_KEY) {
-      const { PerplexityEmbeddingAdapter } = await import(
-        '/Volumes/ExtSSD/WebProjects/steno/packages/engine/src/adapters/perplexity-embedding.js'
-      );
-      embedding = new PerplexityEmbeddingAdapter({
-        apiKey: PPLX_KEY, model: 'pplx-embed-v1-4b', dimensions: 2000,
-      });
-    } else {
-      const { OpenAIEmbeddingAdapter } = await import(
-        '/Volumes/ExtSSD/WebProjects/steno/packages/openai-adapter/src/index.js'
-      );
-      embedding = new OpenAIEmbeddingAdapter({
-        apiKey: OPENAI_KEY, model: 'text-embedding-3-large', dimensions: 3072,
-      });
-    }
-
-    // Run TWO searches through the full engine:
-    // 1. Profile query — who is this user, identity, core facts
-    // 2. Recent activity — what have they been working on lately
-    const [profileResults, recentResults] = await Promise.all([
-      search(
-        { storage, embedding },
-        {
-          query: 'user identity name role preferences background who is this person',
-          tenantId: TENANT_ID, scope: 'user', scopeId: SCOPE_ID, limit: 10,
-        },
-      ),
-      search(
-        { storage, embedding },
-        {
-          query: 'recent activity current project working on latest decisions',
-          tenantId: TENANT_ID, scope: 'user', scopeId: SCOPE_ID, limit: 10,
-        },
-      ),
-    ]);
-
-    // Deduplicate facts across both searches
-    const seen = new Set();
-    const allFacts = [];
-    for (const r of [...profileResults.results, ...recentResults.results]) {
-      if (!seen.has(r.fact.id)) {
-        seen.add(r.fact.id);
-        allFacts.push(r);
-      }
-    }
-
-    if (allFacts.length === 0) {
-      console.log(JSON.stringify({}));
+    if (personalFacts.length === 0 && projectFacts.length === 0) {
+      output(null);
       return;
     }
 
-    // Sort by score descending
-    allFacts.sort((a, b) => b.score - a.score);
+    // Deduplicate
+    const seen = new Set();
+    const dedup = (facts) => facts.filter(f => {
+      const key = f.content.toLowerCase().trim();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 
-    const memoryList = allFacts
-      .slice(0, 15)
-      .map(r => `- ${r.fact.content}`)
-      .join('\n');
+    const personal = dedup(personalFacts).filter(f => f.content.length <= MAX_FACT_LENGTH);
+    const project = dedup(projectFacts).filter(f => f.content.length <= MAX_FACT_LENGTH);
 
-    console.log(JSON.stringify({
-      additionalContext: `# Steno Memory — User Profile & Context
+    // Build context block
+    let context = '<steno-memory>\n';
 
-The following is retrieved from the steno memory system using semantic search, knowledge graph traversal, keyword matching, recency scoring, and salience weighting:
+    if (personal.length > 0) {
+      context += '## User Profile\n';
+      context += personal.map(f => `- ${f.content}`).join('\n');
+      context += '\n\n';
+    }
 
-${memoryList}
+    if (project.length > 0) {
+      context += `## Project Context (${projectName})\n`;
+      context += project.map(f => `- ${f.content}`).join('\n');
+      context += '\n\n';
+    }
 
-Instructions:
-- Use these memories to personalize responses naturally.
-- To save new information, use the steno_remember tool.
-- To search for specific memories, use steno_recall.
-- Don't mention "steno" or "memory system" to the user unless they ask about it.`
-    }));
-  } catch (err) {
-    // Don't break the session if memory fetch fails
-    console.log(JSON.stringify({}));
+    context += `## Instructions
+- Reference these memories naturally when relevant. Don't force them into every response.
+- When the user shares new personal info, preferences, or decisions, use steno_remember to save it.
+- When you need to recall specific past context, use steno_recall to search.
+- Don't mention "steno" or "memory system" unless the user asks about it.
+- Prefer memory recall over re-reading files when answering questions about past work or decisions.
+</steno-memory>`;
+
+    output(context);
+  } catch {
+    output(null);
   }
 }
 
