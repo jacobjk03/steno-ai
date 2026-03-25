@@ -125,7 +125,7 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
           });
           await linkToUser(factId);
           return {
-            content: [{ type: 'text' as const, text: `Updated memory (new version created)` }],
+            content: [{ type: 'text' as const, text: `Remembered (1 fact updated, 0 entities, 0 edges)` }],
           };
         }
 
@@ -151,7 +151,7 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
         });
         await linkToUser(factId);
         return {
-          content: [{ type: 'text' as const, text: `Remembered` }],
+          content: [{ type: 'text' as const, text: `Remembered (1 fact, 0 entities, 0 edges)` }],
         };
       }
 
