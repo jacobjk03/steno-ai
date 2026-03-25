@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Geist", "Inter", -apple-system, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+}
+
+:root {
+  --bg: #06060e;
+  --surface: rgba(10, 10, 20, 0.85);
+  --border: rgba(255, 255, 255, 0.06);
+  --accent: #818cf8;
+  --muted: #555;
+}
+
+body {
+  background: var(--bg);
+  margin: 0;
+}
+
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
