@@ -19,7 +19,7 @@ export async function compoundSearchSignal(
   const queryEmbedding = await embedding.embed(query);
 
   // Extract key content words for keyword search (strip question words and stop words)
-  const stopWords = new Set(['what', 'when', 'where', 'who', 'why', 'how', 'which', 'is', 'are', 'was', 'were', 'did', 'does', 'do', 'the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'and', 'or', 'but', 'not', 'if', 'would', 'could', 'should', 'still', 'have', 'has', 'had', 'been', 'be', 'will', 'can', 'that', 'this', 'it', 'its', 'her', 'his', 'she', 'he', 'they', 'them', 'their', 'my', 'your', 'our']);
+  const stopWords = new Set(['what', 'when', 'where', 'who', 'why', 'how', 'which', 'is', 'are', 'was', 'were', 'did', 'does', 'do', 'the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'and', 'or', 'but', 'not', 'if', 'would', 'could', 'should', 'still', 'have', 'has', 'had', 'been', 'be', 'will', 'can', 'that', 'this', 'it', 'its', 'her', 'his', 'she', 'he', 'they', 'them', 'their', 'my', 'your', 'our', 'user', 'users', 'about', 'know', 'tell', 'like', 'want', 'need', 'think', 'use', 'make', 'get', 'any', 'all', 'some', 'just', 'also', 'very']);
   const keywordQuery = query.toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
