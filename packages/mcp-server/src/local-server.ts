@@ -156,46 +156,34 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
       }
 
       // FULL PATH: For longer text, multi-sentence content, conversations.
-      // Runs LLM extraction + graph building + dedup. ~3-8 seconds.
-      try {
-        const runPipeline = await getPipeline();
-        const result = await runPipeline(
-          {
-            storage: config.storage,
-            embedding: config.embedding,
-            cheapLLM: config.cheapLLM,
-            embeddingModel: config.embeddingModel,
-            embeddingDim: config.embeddingDim,
-            extractionTier: 'auto',
-          },
-          {
-            tenantId: config.tenantId,
-            scope: config.scope,
-            scopeId: config.scopeId,
-            inputType: 'raw_text',
-            data: memoryText,
-          },
-        );
-        const total = result.factsCreated + result.factsUpdated;
-        if (total === 0 && result.entitiesCreated === 0) {
-          return {
-            content: [{ type: 'text' as const, text: `Already remembered (duplicate detected)` }],
-          };
-        }
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: `Remembered (${result.factsCreated} facts, ${result.factsUpdated} updated, ${result.entitiesCreated} entities, ${result.edgesCreated} edges)`,
-            },
-          ],
-        };
-      } catch (err: any) {
-        console.error('[steno] Pipeline error:', err);
-        return {
-          content: [{ type: 'text' as const, text: `Error storing memory: ${err?.message ?? 'unknown error'}` }],
-        };
-      }
+      // Fire-and-forget: return immediately, extract in background.
+      // This prevents blocking the conversation for 5-10s while the pipeline runs.
+      const runPipeline = await getPipeline();
+      void runPipeline(
+        {
+          storage: config.storage,
+          embedding: config.embedding,
+          cheapLLM: config.cheapLLM,
+          embeddingModel: config.embeddingModel,
+          embeddingDim: config.embeddingDim,
+          extractionTier: 'auto',
+        },
+        {
+          tenantId: config.tenantId,
+          scope: config.scope,
+          scopeId: config.scopeId,
+          inputType: 'raw_text',
+          data: memoryText,
+        },
+      ).then((result) => {
+        console.error(`[steno] Background extraction done: ${result.factsCreated} facts, ${result.entitiesCreated} entities, ${result.edgesCreated} edges`);
+      }).catch((err: any) => {
+        console.error('[steno] Background pipeline error:', err?.message ?? err);
+      });
+
+      return {
+        content: [{ type: 'text' as const, text: `Remembering... (extracting in background)` }],
+      };
     },
   );
 
