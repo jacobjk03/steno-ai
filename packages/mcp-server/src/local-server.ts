@@ -36,6 +36,13 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
   const server = new McpServer({
     name: 'steno-local',
     version: '0.1.0',
+    instructions: `You have access to the user's persistent long-term memory via Steno.
+
+CRITICAL RULES:
+1. ALWAYS call steno_recall BEFORE answering ANY question about the user, their life, work, projects, people they know, preferences, past events, companies, or decisions. Do this BEFORE using web search or "Relevant chats".
+2. When the user shares personal information, experiences, opinions, or decisions, call steno_remember to store it.
+3. Never say "I don't have information about that" without first checking steno_recall.
+4. Steno memory persists across ALL conversations — it knows things from past sessions that your conversation history does not.`,
   });
 
   // Lazy import to avoid loading heavy modules at startup

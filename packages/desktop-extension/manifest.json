@@ -1,0 +1,92 @@
+{
+  "manifest_version": "0.3",
+  "name": "steno-memory",
+  "display_name": "Steno Memory",
+  "version": "0.1.0",
+  "description": "Persistent long-term memory for Claude. Remembers your facts, preferences, people, projects, and decisions across all conversations.",
+  "long_description": "Steno gives Claude persistent memory that works across every conversation. It extracts atomic facts from what you share, builds a knowledge graph of entities and relationships, and retrieves relevant memories using 6-signal fusion search (vector, keyword, graph, recency, salience, temporal). Steno handles temporal reasoning, knowledge updates, and contradiction resolution.\n\nFeatures:\n- Automatic fact extraction with entity and relationship detection\n- Temporal grounding (eventDate + documentDate on every fact)\n- Knowledge updates (newer facts supersede older ones)\n- Source chunk preservation for full-context answers\n- 6-signal retrieval with configurable fusion weights",
+  "author": {
+    "name": "Steno AI",
+    "url": "https://github.com/steno-ai"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/steno-ai/steno"
+  },
+  "icon": "icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.js"],
+      "env": {
+        "SUPABASE_URL": "${user_config.supabase_url}",
+        "SUPABASE_SERVICE_ROLE_KEY": "${user_config.supabase_key}",
+        "OPENAI_API_KEY": "${user_config.openai_key}",
+        "PERPLEXITY_API_KEY": "${user_config.perplexity_key}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "steno_remember",
+      "description": "Store important information in persistent long-term memory"
+    },
+    {
+      "name": "steno_recall",
+      "description": "ALWAYS search memory before answering personal questions about the user"
+    },
+    {
+      "name": "steno_flush",
+      "description": "Force extraction of buffered memories"
+    },
+    {
+      "name": "steno_feedback",
+      "description": "Rate whether a recalled memory was useful"
+    },
+    {
+      "name": "steno_stats",
+      "description": "Get memory statistics"
+    }
+  ],
+  "keywords": ["memory", "long-term", "personal", "knowledge-graph", "recall"],
+  "license": "MIT",
+  "user_config": {
+    "supabase_url": {
+      "type": "string",
+      "title": "Supabase URL",
+      "description": "Your Supabase project URL",
+      "required": true,
+      "sensitive": false
+    },
+    "supabase_key": {
+      "type": "string",
+      "title": "Supabase Service Role Key",
+      "description": "Your Supabase service role key",
+      "required": true,
+      "sensitive": true
+    },
+    "openai_key": {
+      "type": "string",
+      "title": "OpenAI API Key",
+      "description": "OpenAI API key for embeddings and extraction",
+      "required": true,
+      "sensitive": true
+    },
+    "perplexity_key": {
+      "type": "string",
+      "title": "Perplexity API Key (optional)",
+      "description": "For cheaper embeddings. Falls back to OpenAI if not set.",
+      "required": false,
+      "sensitive": true
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  }
+}
