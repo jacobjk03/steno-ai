@@ -11,18 +11,19 @@ export interface GraphSearchConfig {
 const DEFAULT_MAX_DEPTH = 2;
 const MAX_ALLOWED_DEPTH = 5;
 const DEFAULT_MAX_ENTITIES = 200;
-const MIN_TOKEN_LENGTH = 3;
+const MIN_TOKEN_LENGTH = 2;
 
 /** Known entity types to search against for each token */
 const ENTITY_TYPES = ['person', 'organization', 'location', 'topic', 'concept', 'product', 'event'] as const;
 
 /**
  * Tokenize query into candidate entity names.
- * Splits on whitespace, filters short words (< 3 chars), lowercases for canonical lookup.
+ * Splits on whitespace and dots, filters short words (< 2 chars), lowercases for canonical lookup.
+ * Also preserves dot-separated names as candidate names (e.g., "clean.ai" → tokens ["clean", "ai"] + candidate "clean.ai")
  */
 export function tokenizeQuery(query: string): string[] {
   return query
-    .split(/\s+/)
+    .split(/[\s.]+/)
     .map((t) => t.replace(/[^\w-]/g, ''))
     .filter((t) => t.length >= MIN_TOKEN_LENGTH)
     .map((t) => t.toLowerCase());
@@ -59,15 +60,33 @@ export async function graphSearch(
 
   const seedEntityIds: string[] = [];
 
-  // Build all candidate names to search for (tokens + multi-word combos)
-  const candidateNames = ['user']; // Always include User
-  for (const token of tokens) {
-    if (token.length >= 3) candidateNames.push(token);
+  // Build all candidate names to search for (tokens + multi-word combos + original query forms)
+  // NOTE: We intentionally do NOT always include 'user' — it's linked to nearly every fact
+  // and floods results. The 'user' entity is only included if the query mentions "user" or "me".
+  const candidateNames: string[] = [];
+  if (/\b(user|me|my|i)\b/i.test(query)) {
+    candidateNames.push('user');
   }
+  for (const token of tokens) {
+    if (token.length >= 2) candidateNames.push(token);
+  }
+  // Add multi-word combos from adjacent tokens
   if (tokens.length >= 2) {
     for (let i = 0; i < tokens.length - 1; i++) {
       candidateNames.push(`${tokens[i]} ${tokens[i + 1]}`);
+      // Also try dot-separated form (for entities like "clean.ai")
+      candidateNames.push(`${tokens[i]}.${tokens[i + 1]}`);
     }
+  }
+  // Add the full lowercased query as a candidate (catches exact entity names)
+  const fullQuery = query.toLowerCase().trim();
+  if (fullQuery.length >= 2 && !candidateNames.includes(fullQuery)) {
+    candidateNames.push(fullQuery);
+  }
+  // Also add dot-stripped version (e.g., "clean.ai" → "clean ai")
+  const dotStripped = fullQuery.replace(/\./g, ' ').replace(/\s+/g, ' ').trim();
+  if (dotStripped !== fullQuery && !candidateNames.includes(dotStripped)) {
+    candidateNames.push(dotStripped);
   }
 
   // ONE query to find all matching entities instead of 78 sequential calls
