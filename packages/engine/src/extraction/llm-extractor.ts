@@ -1,6 +1,6 @@
 import type { LLMAdapter } from '../adapters/llm.js';
 import type { ExtractionResult, ExtractedFact, ExtractedEntity, ExtractedEdge } from './types.js';
-import type { ExtractionTier, EdgeType } from '../config.js';
+import type { ExtractionTier, EdgeType, DomainEntityType } from '../config.js';
 import { buildFactExtractionPrompt, buildGraphExtractionPrompt, buildExtractionPrompt } from './prompts.js';
 import { createEnrichedSegments } from './sliding-window.js';
 
@@ -8,6 +8,7 @@ export interface LLMExtractorConfig {
   llm: LLMAdapter;
   tier: ExtractionTier;
   entityTypes?: string[];
+  domainEntityTypes?: DomainEntityType[];
 }
 
 /**
@@ -144,7 +145,7 @@ export async function extractWithLLM(
   let edges: ExtractedEdge[] = [];
 
   try {
-    const graphMessages = buildGraphExtractionPrompt(factStrings, config.entityTypes);
+    const graphMessages = buildGraphExtractionPrompt(factStrings, config.entityTypes, config.domainEntityTypes);
     const graphResponse = await config.llm.complete(graphMessages, { temperature: 0, responseFormat: 'json' });
     totalTokensIn += graphResponse.tokensInput;
     totalTokensOut += graphResponse.tokensOutput;

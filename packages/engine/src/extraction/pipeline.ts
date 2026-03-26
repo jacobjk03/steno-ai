@@ -1,7 +1,7 @@
 import type { StorageAdapter } from '../adapters/storage.js';
 import type { EmbeddingAdapter } from '../adapters/embedding.js';
 import type { LLMAdapter } from '../adapters/llm.js';
-import type { SourceType } from '../config.js';
+import type { SourceType, DomainEntityType } from '../config.js';
 import type {
   ExtractionInput,
   PipelineResult,
@@ -28,6 +28,7 @@ export interface PipelineConfig {
   decayHalfLifeDays?: number;
   decayNormalizationK?: number;
   entityTypes?: string[];
+  domainEntityTypes?: DomainEntityType[];
 }
 
 // ---------------------------------------------------------------------------
@@ -135,7 +136,7 @@ async function executeExtraction(
     }
 
     const llmResult = await extractWithLLM(
-      { llm: llmToUse, tier: llmTier, entityTypes: config.entityTypes },
+      { llm: llmToUse, tier: llmTier, entityTypes: config.entityTypes, domainEntityTypes: config.domainEntityTypes },
       textContent,
       existingFactsForLLM,
     );
@@ -152,7 +153,7 @@ async function executeExtraction(
       config.smartLLM
     ) {
       const smartResult = await extractWithLLM(
-        { llm: config.smartLLM, tier: 'smart_llm', entityTypes: config.entityTypes },
+        { llm: config.smartLLM, tier: 'smart_llm', entityTypes: config.entityTypes, domainEntityTypes: config.domainEntityTypes },
         textContent,
         existingFactsForLLM,
       );

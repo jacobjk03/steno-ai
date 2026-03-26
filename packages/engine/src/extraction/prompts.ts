@@ -1,4 +1,5 @@
 import type { LLMMessage } from '../adapters/llm.js';
+import type { DomainEntityType } from '../config.js';
 
 // =============================================================================
 // PASS 1: FACT EXTRACTION — Simple, focused, one job
@@ -159,10 +160,34 @@ export function buildFactExtractionPrompt(input: string): LLMMessage[] {
  * Build the graph extraction prompt (Pass 2).
  * Takes extracted facts and produces entities + edges.
  */
-export function buildGraphExtractionPrompt(facts: string[], entityTypes?: string[]): LLMMessage[] {
+export function buildGraphExtractionPrompt(
+  facts: string[],
+  entityTypes?: string[],
+  domainEntityTypes?: DomainEntityType[],
+): LLMMessage[] {
   const factsList = facts.map((f, i) => `${i + 1}. ${f}`).join('\n');
-  const types = entityTypes ?? DEFAULT_ENTITY_TYPES;
-  const prompt = GRAPH_EXTRACTION_PROMPT.replace('{ENTITY_TYPES}', types.join(', '));
+
+  // Build entity type list — merge default names with domain-specific types
+  const defaultTypes = entityTypes ?? DEFAULT_ENTITY_TYPES;
+  const domainTypeNames = domainEntityTypes?.map(t => t.name.toLowerCase()) ?? [];
+  const allTypeNames = [...new Set([...defaultTypes, ...domainTypeNames])];
+
+  let prompt = GRAPH_EXTRACTION_PROMPT.replace('{ENTITY_TYPES}', allTypeNames.join(', '));
+
+  // If domain entity types have field definitions, add them to the prompt
+  if (domainEntityTypes && domainEntityTypes.length > 0) {
+    const typeDefinitions = domainEntityTypes.map(t => {
+      const fieldsStr = t.fields.length > 0
+        ? '\n  Fields: ' + t.fields.map(f =>
+            `${f.name} (${f.type}${f.required ? ', required' : ''}: ${f.description})`
+          ).join(', ')
+        : '';
+      return `- ${t.name}: "${t.description}"${fieldsStr}`;
+    }).join('\n');
+
+    prompt += `\n\nCustom entity type definitions:\n${typeDefinitions}\n\nWhen you identify an entity matching a custom type, include its fields in a "properties" object:\n{"name": "Acme Corp", "entity_type": "lead", "properties": {"company_size": "enterprise", "budget_range": "$50k-100k"}}`;
+  }
+
   return [
     { role: 'system', content: prompt },
     { role: 'user', content: `Extract entities and relationships from these facts:\n\n${factsList}` },

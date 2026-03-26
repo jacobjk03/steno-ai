@@ -3,6 +3,30 @@ import { z } from 'zod';
 // Shared Zod helpers
 export const unitFloat = z.number().min(0).max(1);
 
+// ---------------------------------------------------------------------------
+// Domain-scoped graph schemas — custom entity types with typed attributes
+// ---------------------------------------------------------------------------
+
+export const EntityFieldSchema = z.object({
+  name: z.string(),
+  type: z.enum(['string', 'number', 'boolean', 'date']),
+  description: z.string(),
+  required: z.boolean().default(false),
+});
+export type EntityField = z.infer<typeof EntityFieldSchema>;
+
+export const DomainEntityTypeSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  fields: z.array(EntityFieldSchema).default([]),
+});
+export type DomainEntityType = z.infer<typeof DomainEntityTypeSchema>;
+
+export const DomainSchemaSchema = z.object({
+  entityTypes: z.array(DomainEntityTypeSchema).default([]),
+});
+export type DomainSchema = z.infer<typeof DomainSchemaSchema>;
+
 // Steno engine configuration schema
 export const StenoConfigSchema = z.object({
   embeddingModel: z.string().default('text-embedding-3-small'),
@@ -20,6 +44,7 @@ export const StenoConfigSchema = z.object({
       temporal: z.number().min(0).max(1).default(0.20),
     })
     .default({}),
+  domainSchema: DomainSchemaSchema.optional(),
 });
 export type StenoConfig = z.infer<typeof StenoConfigSchema>;
 
