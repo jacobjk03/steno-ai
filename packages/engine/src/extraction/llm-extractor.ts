@@ -161,11 +161,17 @@ export async function extractWithLLM(
         const canonical = normalizeEntityName(entity.name as string);
         if (canonical.length === 0 || seenEntities.has(canonical)) continue;
         seenEntities.add(canonical);
+        // Capture properties from domain entity types (e.g., {"company_size": "enterprise"})
+        const rawProps = entity.properties;
+        const properties: Record<string, unknown> = (rawProps && typeof rawProps === 'object' && !Array.isArray(rawProps))
+          ? rawProps as Record<string, unknown>
+          : {};
+
         entities.push({
           name: canonical.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
           entityType: String(entity.entity_type ?? entity.type ?? 'concept'),
           canonicalName: canonical,
-          properties: {},
+          properties,
         });
       }
     }
