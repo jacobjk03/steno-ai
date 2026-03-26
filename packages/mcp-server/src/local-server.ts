@@ -32,6 +32,41 @@ interface SessionBuffer {
 const FLUSH_DELAY_MS = 30_000; // 30 seconds of inactivity triggers flush
 const MAX_BUFFER_SIZE = 5;     // flush after 5 messages
 
+// In-memory embedding cache — survives across tool calls within the same MCP session
+let _embeddingCache: Map<string, { embedding: number[]; ts: number }> | null = null;
+function getEmbeddingCache() {
+  if (!_embeddingCache) _embeddingCache = new Map();
+  return _embeddingCache;
+}
+
+/** Simple cache adapter that wraps a Map for embedding caching */
+const embeddingCacheAdapter = {
+  async get<T>(key: string): Promise<T | null> {
+    const cache = getEmbeddingCache();
+    const entry = cache.get(key);
+    if (!entry) return null;
+    // TTL: 10 minutes
+    if (Date.now() - entry.ts > 600_000) {
+      cache.delete(key);
+      return null;
+    }
+    return entry.embedding as unknown as T;
+  },
+  async set<T>(key: string, value: T): Promise<void> {
+    const cache = getEmbeddingCache();
+    cache.set(key, { embedding: value as unknown as number[], ts: Date.now() });
+    // Evict old entries if cache grows too large (>500 entries)
+    if (cache.size > 500) {
+      const oldest = [...cache.entries()].sort((a, b) => a[1].ts - b[1].ts).slice(0, 100);
+      for (const [k] of oldest) cache.delete(k);
+    }
+  },
+  async del(key: string): Promise<void> { getEmbeddingCache().delete(key); },
+  async incr(): Promise<number> { return 0; },
+  async expire(): Promise<void> {},
+  async ping(): Promise<boolean> { return true; },
+};
+
 export function createLocalServer(config: LocalServerConfig): McpServer {
   const server = new McpServer({
     name: 'steno-local',
@@ -249,7 +284,7 @@ CRITICAL RULES:
 
       const searchFn = await getSearch();
       const results = await searchFn(
-        { storage: config.storage, embedding: config.embedding },
+        { storage: config.storage, embedding: config.embedding, cache: embeddingCacheAdapter as any },
         {
           query,
           tenantId: config.tenantId,
