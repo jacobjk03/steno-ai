@@ -327,10 +327,10 @@ async function executeExtraction(
   // sufficient for retrieval quality.
 
   // Create edges ONCE after all facts are persisted.
-  console.log(`[steno] Edge creation: ${mergedEdges.length} edges to persist, firstFactId=${firstFactId ? 'set' : 'MISSING'}`);
+  console.error(`[steno] Edge creation: ${mergedEdges.length} edges to persist, firstFactId=${firstFactId ? 'set' : 'MISSING'}`);
   if (mergedEdges.length > 0) {
     for (const e of mergedEdges.slice(0, 5)) {
-      console.log(`[steno]   edge: "${e.sourceName}" → "${e.relation}" → "${e.targetName}"`);
+      console.error(`[steno]   edge: "${e.sourceName}" → "${e.relation}" → "${e.targetName}"`);
     }
   }
   if (firstFactId !== undefined && mergedEdges.length > 0) {
