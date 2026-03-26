@@ -40,7 +40,7 @@ async function main(): Promise<void> {
   // Set up adapters
   const supabase = createSupabaseClient({ url: supabaseUrl, serviceRoleKey: supabaseKey });
   const storage = new SupabaseStorageAdapter(supabase);
-  const cheapLLM = new OpenAILLMAdapter({ apiKey: openaiKey, model: 'gpt-4.1-mini' });
+  const cheapLLM = new OpenAILLMAdapter({ apiKey: openaiKey, model: 'gpt-5.4-mini' });
 
   // Embedding: prefer Perplexity (cheaper, 2000 dims) else OpenAI (3072 dims)
   let embedding: any;
