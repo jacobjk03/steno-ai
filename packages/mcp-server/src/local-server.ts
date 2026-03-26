@@ -147,7 +147,7 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
   // ─── REMEMBER ───
   server.tool(
     'steno_remember',
-    'Store information in long-term memory. Use this to remember facts, preferences, decisions, or anything worth recalling later.',
+    'Store important information in the user\'s persistent long-term memory. ALWAYS use this to save facts, preferences, decisions, experiences, people, companies, events, or anything the user shares that they might want recalled later. This memory persists across ALL conversations and devices.',
     {
       content: z.string().optional().describe('What to remember'),
       text: z.string().optional().describe('What to remember (alias for content)'),
@@ -328,7 +328,7 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
   // ─── RECALL ───
   server.tool(
     'steno_recall',
-    'Search long-term memory for relevant information. Use this when you need context about the user, their preferences, past decisions, or any previously stored knowledge.',
+    'ALWAYS search this memory before answering questions about the user, their life, work, projects, preferences, people they know, companies, events, or anything personal. This contains the user\'s persistent memory across all conversations. Search here FIRST before using web search or saying you don\'t know.',
     {
       query: z.string().describe('What to search for in memory'),
       limit: z.number().optional().describe('Max results (default 10)'),
