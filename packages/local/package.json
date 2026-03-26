@@ -1,6 +1,6 @@
 {
   "name": "@steno-ai/local",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Zero-config local Steno setup with SQLite",
   "license": "MIT",
   "repository": {

@@ -1,6 +1,6 @@
 {
   "name": "@steno-ai/graph",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "3D memory knowledge graph visualizer for Steno",
   "license": "MIT",
   "repository": {

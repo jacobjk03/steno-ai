@@ -1,6 +1,6 @@
 {
   "name": "@steno-ai/sqlite-adapter",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "SQLite storage adapter for Steno",
   "license": "MIT",
   "repository": {
