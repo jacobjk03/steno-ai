@@ -1,6 +1,6 @@
 {
   "name": "@steno-ai/mcp",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "MCP server for Claude Code, Claude Desktop, and other MCP clients",
   "license": "MIT",
   "repository": {
@@ -9,7 +9,10 @@
     "directory": "packages/mcp-server"
   },
   "type": "module",
-  "bin": { "steno-mcp": "./dist/cli.js" },
+  "bin": {
+    "steno-mcp": "./dist/cli.js",
+    "steno-mcp-init": "./dist/init.js"
+  },
   "exports": {
     ".": {
       "import": "./dist/index.js",

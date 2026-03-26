@@ -1,24 +1,65 @@
 # @steno-ai/mcp
 
-MCP server that gives Claude persistent long-term memory. Works with Claude Desktop, Claude Code, Cursor, Windsurf, and any MCP-compatible client.
+Persistent long-term memory for Claude. One command to set up. Works with Claude Desktop, Claude Code, Cursor, and any MCP client.
 
-## Setup
+## Quick Start (2 minutes)
 
-### 1. Get your keys
+### 1. Create a free Supabase project
 
-You need a [Supabase](https://supabase.com) project and an [OpenAI](https://platform.openai.com) API key. Optionally a [Perplexity](https://perplexity.ai) key for cheaper embeddings.
+Go to [supabase.com](https://supabase.com), create a new project. Copy your:
+- **Project URL** (looks like `https://abc123.supabase.co`)
+- **Service Role Key** (in Settings > API > service_role key — NOT the anon key)
 
-### 2. Run the Supabase migrations
+### 2. Get an OpenAI key
 
-Clone the repo and run the schema migrations against your Supabase project:
+Go to [platform.openai.com/api-keys](https://platform.openai.com/api-keys), create a key.
+
+### 3. Run setup
 
 ```bash
-git clone https://github.com/SankrityaT/steno-ai.git
-cd steno-ai/packages/supabase-adapter/src/migrations
-# Run each .sql file (001-025) in order via Supabase SQL Editor or CLI
+npx steno-mcp-init
 ```
 
-### 3. Add to Claude Desktop
+This will:
+- Ask for your Supabase URL, Service Role Key, and OpenAI key
+- Create all database tables automatically
+- Write the Claude Desktop config for you
+
+### 4. Restart Claude Desktop
+
+Quit (Cmd+Q) and reopen. Then:
+- Go to **Settings > General** → set **"Tools already loaded"**
+- Start chatting — Claude now has persistent memory
+
+That's it. Your data stays in YOUR Supabase project. Nothing is shared.
+
+---
+
+## What you get
+
+| Tool | What it does |
+|------|-------------|
+| `steno_remember` | Stores facts, preferences, decisions, people, events |
+| `steno_recall` | Searches memory with 6-signal fusion (vector + keyword + graph + temporal + recency + salience) |
+| `steno_flush` | Forces extraction of buffered session messages |
+| `steno_feedback` | Rates whether a recalled memory was useful |
+| `steno_stats` | Shows memory statistics |
+
+## How it works
+
+**Storing memories:** Every message goes through LLM extraction → entity/edge creation → temporal grounding → contextual embedding → dedup → knowledge graph update.
+
+**Recalling memories:** Every query runs through 6 parallel signals fused with configurable weights. Knowledge updates are tracked — newer facts supersede older ones.
+
+**Features:**
+- Knowledge graph with typed entities and relationships
+- Temporal reasoning (eventDate + documentDate on every fact)
+- Knowledge updates (newer facts automatically supersede older ones)
+- Domain-scoped entity types (vehicle, startup, project — or define your own)
+- Session buffering for cross-message context
+- Source chunk preservation for full-context answers
+
+## Manual Setup (if you prefer)
 
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
@@ -32,55 +73,40 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
         "SUPABASE_URL": "https://YOUR-PROJECT.supabase.co",
         "SUPABASE_SERVICE_ROLE_KEY": "eyJ...",
         "OPENAI_API_KEY": "sk-...",
-        "PERPLEXITY_API_KEY": "pplx-... (optional)"
+        "PERPLEXITY_API_KEY": "pplx-... (optional, for cheaper embeddings)"
       }
     }
   }
 }
 ```
 
-### 4. Restart Claude Desktop
-
-The MCP server will connect automatically. Claude gets 5 memory tools:
-
-| Tool | Description |
-|------|-------------|
-| `steno_remember` | Store facts, preferences, decisions, people, events |
-| `steno_recall` | Search memory with 6-signal fusion retrieval |
-| `steno_flush` | Force extraction of buffered session messages |
-| `steno_feedback` | Rate whether a recalled memory was useful |
-| `steno_stats` | View memory statistics |
-
-## How it works
-
-Every `steno_remember` call runs through the full extraction pipeline:
-- **LLM fact extraction** with temporal grounding (eventDate + documentDate)
-- **Knowledge graph** building (entities, typed edges, domain-scoped schemas)
-- **Dedup + knowledge updates** (newer facts supersede older ones)
-- **Contextual embeddings** (facts embedded with conversation context)
-- **Session buffering** (messages batched for cross-message context)
-
-Every `steno_recall` query uses **6-signal fusion**:
-- Vector similarity (0.30) — semantic search
-- Temporal proximity (0.20) — date-aware retrieval
-- Graph traversal (0.15) — entity relationships
-- Keyword/FTS (0.15) — exact term matching
-- Recency decay (0.10) — prefer recent memories
-- Salience (0.10) — importance × access frequency
-
-## Claude Code
-
-Works the same way — add to your Claude Code MCP config or install as a plugin.
+Then run the migrations manually — see [migrations folder](https://github.com/SankrityaT/steno-ai/tree/main/packages/supabase-adapter/src/migrations).
 
 ## Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `SUPABASE_URL` | Yes | Your Supabase project URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service role key |
-| `OPENAI_API_KEY` | Yes | OpenAI API key (for LLM extraction) |
-| `PERPLEXITY_API_KEY` | No | Perplexity key for cheaper embeddings |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service role key (not anon key) |
+| `OPENAI_API_KEY` | Yes | For LLM extraction and embeddings |
+| `PERPLEXITY_API_KEY` | No | Cheaper embeddings ($0.03/1M tokens vs $0.13) |
 | `STENO_SCOPE_ID` | No | Scope identifier (default: "default") |
+
+## For Developers
+
+Use the engine directly in your app:
+
+```bash
+npm install @steno-ai/engine @steno-ai/supabase-adapter @steno-ai/openai-adapter
+```
+
+```typescript
+import { runExtractionPipeline, search } from '@steno-ai/engine';
+import { SupabaseStorageAdapter } from '@steno-ai/supabase-adapter';
+import { OpenAILLMAdapter } from '@steno-ai/openai-adapter';
+```
+
+See [@steno-ai/engine](https://www.npmjs.com/package/@steno-ai/engine) for full API docs.
 
 ## Part of [Steno](https://github.com/SankrityaT/steno-ai)
 
