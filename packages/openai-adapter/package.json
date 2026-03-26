@@ -1,11 +1,23 @@
 {
   "name": "@steno-ai/openai-adapter",
-  "version": "0.0.1",
-  "private": true,
+  "version": "0.1.0",
+  "description": "OpenAI LLM and embedding adapter for Steno",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SankrityaT/steno-ai.git",
+    "directory": "packages/openai-adapter"
+  },
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts",
+      "development": "./src/index.ts"
+    }
   },
+  "types": "./dist/index.d.ts",
+  "files": ["dist", "src", "README.md"],
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest watch",

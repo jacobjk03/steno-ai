@@ -1,6 +1,13 @@
 {
   "name": "@steno-ai/sdk",
   "version": "0.1.0",
+  "description": "TypeScript SDK for the Steno API",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SankrityaT/steno-ai.git",
+    "directory": "packages/sdk-ts"
+  },
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -10,6 +17,7 @@
       "types": "./dist/index.d.ts"
     }
   },
+  "files": ["dist", "src", "README.md"],
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest watch",

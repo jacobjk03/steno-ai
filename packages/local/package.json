@@ -1,10 +1,24 @@
 {
   "name": "@steno-ai/local",
-  "version": "0.0.1",
-  "private": true,
+  "version": "0.1.0",
+  "description": "Zero-config local Steno setup with SQLite",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SankrityaT/steno-ai.git",
+    "directory": "packages/local"
+  },
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts",
+      "development": "./src/index.ts"
+    }
+  },
+  "types": "./dist/index.d.ts",
   "bin": { "steno": "./dist/cli.js" },
+  "files": ["dist", "src", "README.md"],
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",

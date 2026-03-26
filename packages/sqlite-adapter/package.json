@@ -1,9 +1,23 @@
 {
   "name": "@steno-ai/sqlite-adapter",
-  "version": "0.0.1",
-  "private": true,
+  "version": "0.1.0",
+  "description": "SQLite storage adapter for Steno",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SankrityaT/steno-ai.git",
+    "directory": "packages/sqlite-adapter"
+  },
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts",
+      "development": "./src/index.ts"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": ["dist", "src", "README.md"],
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",

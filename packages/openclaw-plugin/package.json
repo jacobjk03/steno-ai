@@ -1,7 +1,13 @@
 {
   "name": "@steno-ai/openclaw-plugin",
   "version": "0.1.0",
-  "description": "Steno memory plugin for OpenClaw AI coding assistant",
+  "description": "OpenClaw AI agent plugin for Steno",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SankrityaT/steno-ai.git",
+    "directory": "packages/openclaw-plugin"
+  },
   "type": "module",
   "files": ["SKILL.md", "hooks/", "README.md"]
 }

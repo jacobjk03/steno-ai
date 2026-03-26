@@ -2,6 +2,12 @@
   "name": "@steno-ai/graph",
   "version": "0.1.0",
   "description": "3D memory knowledge graph visualizer for Steno",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SankrityaT/steno-ai.git",
+    "directory": "packages/graph"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -12,7 +18,7 @@
     },
     "./styles.css": "./dist/styles.css"
   },
-  "files": ["dist"],
+  "files": ["dist", "src", "README.md"],
   "scripts": {
     "build": "tsc && mkdir -p dist && cp src/styles.css dist/styles.css",
     "typecheck": "tsc --noEmit",
