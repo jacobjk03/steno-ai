@@ -157,32 +157,45 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
 
       // FULL PATH: For longer text, multi-sentence content, conversations.
       // Runs LLM extraction + graph building + dedup. ~3-8 seconds.
-      const runPipeline = await getPipeline();
-      const result = await runPipeline(
-        {
-          storage: config.storage,
-          embedding: config.embedding,
-          cheapLLM: config.cheapLLM,
-          embeddingModel: config.embeddingModel,
-          embeddingDim: config.embeddingDim,
-          extractionTier: 'auto',
-        },
-        {
-          tenantId: config.tenantId,
-          scope: config.scope,
-          scopeId: config.scopeId,
-          inputType: 'raw_text',
-          data: memoryText,
-        },
-      );
-      return {
-        content: [
+      try {
+        const runPipeline = await getPipeline();
+        const result = await runPipeline(
           {
-            type: 'text' as const,
-            text: `Remembered (${result.factsCreated} facts, ${result.entitiesCreated} entities, ${result.edgesCreated} edges)`,
+            storage: config.storage,
+            embedding: config.embedding,
+            cheapLLM: config.cheapLLM,
+            embeddingModel: config.embeddingModel,
+            embeddingDim: config.embeddingDim,
+            extractionTier: 'auto',
           },
-        ],
-      };
+          {
+            tenantId: config.tenantId,
+            scope: config.scope,
+            scopeId: config.scopeId,
+            inputType: 'raw_text',
+            data: memoryText,
+          },
+        );
+        const total = result.factsCreated + result.factsUpdated;
+        if (total === 0 && result.entitiesCreated === 0) {
+          return {
+            content: [{ type: 'text' as const, text: `Already remembered (duplicate detected)` }],
+          };
+        }
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `Remembered (${result.factsCreated} facts, ${result.factsUpdated} updated, ${result.entitiesCreated} entities, ${result.edgesCreated} edges)`,
+            },
+          ],
+        };
+      } catch (err: any) {
+        console.error('[steno] Pipeline error:', err);
+        return {
+          content: [{ type: 'text' as const, text: `Error storing memory: ${err?.message ?? 'unknown error'}` }],
+        };
+      }
     },
   );
 
@@ -275,13 +288,13 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
       const facts = await config.storage.getFactsByScope(
         config.tenantId, config.scope, config.scopeId, { limit: 1 },
       );
-      const entities = await config.storage.getEntitiesForTenant(config.tenantId);
+      const entities = await config.storage.getEntitiesForTenant(config.tenantId, { limit: 1 });
 
       return {
         content: [
           {
             type: 'text' as const,
-            text: `Memory stats:\n  Facts: ${facts.hasMore ? '100+' : facts.data.length}\n  Entities: ${entities.length}`,
+            text: `Memory stats:\n  Facts: ${facts.hasMore ? '100+' : facts.data.length}\n  Entities: ${entities.hasMore ? '100+' : entities.data.length}`,
           },
         ],
       };
