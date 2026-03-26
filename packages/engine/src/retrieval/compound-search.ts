@@ -48,7 +48,7 @@ export async function compoundSearchSignal(
   const keywordQuery = query.toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
-    .filter(w => w.length >= 3 && !QUERY_STOP_WORDS.has(w))
+    .filter(w => w.length >= 2 && !QUERY_STOP_WORDS.has(w))
     .join(' | ');
 
   const results = await storage.compoundSearch({
