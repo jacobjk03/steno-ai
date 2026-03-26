@@ -54,12 +54,14 @@ describe('GRAPH_EXTRACTION_PROMPT', () => {
     expect(GRAPH_EXTRACTION_PROMPT).toContain('person');
   });
 
-  it('contains entity type: location', () => {
-    expect(GRAPH_EXTRACTION_PROMPT).toContain('location');
+  it('contains entity type placeholder', () => {
+    expect(GRAPH_EXTRACTION_PROMPT).toContain('{ENTITY_TYPES}');
   });
 
-  it('contains entity type: technology', () => {
-    expect(GRAPH_EXTRACTION_PROMPT).toContain('technology');
+  it('default entity types include location and technology', () => {
+    const built = buildGraphExtractionPrompt(['test fact']);
+    expect(built[0].content).toContain('location');
+    expect(built[0].content).toContain('technology');
   });
 
   it('contains snake_case relation instruction', () => {
@@ -184,9 +186,19 @@ describe('buildGraphExtractionPrompt', () => {
     expect(messages[1].role).toBe('user');
   });
 
-  it('system prompt is GRAPH_EXTRACTION_PROMPT', () => {
+  it('system prompt is GRAPH_EXTRACTION_PROMPT with entity types resolved', () => {
     const messages = buildGraphExtractionPrompt(['Fact 1']);
-    expect(messages[0].content).toBe(GRAPH_EXTRACTION_PROMPT);
+    // Should have entity types injected (no raw placeholder)
+    expect(messages[0].content).not.toContain('{ENTITY_TYPES}');
+    expect(messages[0].content).toContain('person');
+    expect(messages[0].content).toContain('organization');
+  });
+
+  it('accepts custom entity types', () => {
+    const messages = buildGraphExtractionPrompt(['Fact 1'], ['product', 'service', 'customer']);
+    expect(messages[0].content).toContain('product, service, customer');
+    // The entity_type constraint line should only contain custom types
+    expect(messages[0].content).toContain('entity_type must be one of: product, service, customer.');
   });
 
   it('user message contains numbered facts', () => {

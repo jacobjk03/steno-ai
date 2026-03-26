@@ -7,6 +7,7 @@ import { createEnrichedSegments } from './sliding-window.js';
 export interface LLMExtractorConfig {
   llm: LLMAdapter;
   tier: ExtractionTier;
+  entityTypes?: string[];
 }
 
 /**
@@ -126,12 +127,24 @@ export async function extractWithLLM(
     documentDate,
   }));
 
+  // ── Contextual memory wrappers ──
+  // Prepend source context so the embedding captures the full meaning.
+  // E.g. "User went to the gym" becomes "Context: <segment>... | Fact: User went to the gym"
+  // This is a transient field — only used at embedding time, never stored.
+  for (const fact of facts) {
+    const src = fact.sourceChunk ?? input;
+    const contextPrefix = src.length > 100
+      ? `Context: ${src.slice(0, 200).trim()}... | Fact: `
+      : `Context: ${src.trim()} | Fact: `;
+    fact.contextualContent = contextPrefix + fact.content;
+  }
+
   // ── PASS 2: Graph extraction (entities + edges) from the facts ──
   let entities: ExtractedEntity[] = [];
   let edges: ExtractedEdge[] = [];
 
   try {
-    const graphMessages = buildGraphExtractionPrompt(factStrings);
+    const graphMessages = buildGraphExtractionPrompt(factStrings, config.entityTypes);
     const graphResponse = await config.llm.complete(graphMessages, { temperature: 0, responseFormat: 'json' });
     totalTokensIn += graphResponse.tokensInput;
     totalTokensOut += graphResponse.tokensOutput;

@@ -19,6 +19,19 @@ export interface LocalServerConfig {
   embeddingDim: number;
 }
 
+// ---------------------------------------------------------------------------
+// Session buffer types
+// ---------------------------------------------------------------------------
+interface SessionBuffer {
+  sessionId: string;
+  messages: string[];
+  lastActivity: Date;
+  flushTimer: ReturnType<typeof setTimeout> | null;
+}
+
+const FLUSH_DELAY_MS = 30_000; // 30 seconds of inactivity triggers flush
+const MAX_BUFFER_SIZE = 5;     // flush after 5 messages
+
 export function createLocalServer(config: LocalServerConfig): McpServer {
   const server = new McpServer({
     name: 'steno-local',
@@ -28,6 +41,7 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
   // Lazy import to avoid loading heavy modules at startup
   let _search: typeof import('../../engine/src/retrieval/search.js').search | null = null;
   let _pipeline: typeof import('../../engine/src/extraction/pipeline.js').runExtractionPipeline | null = null;
+  let _getOrCreateActiveSession: typeof import('../../engine/src/sessions/manager.js').getOrCreateActiveSession | null = null;
 
   async function getSearch() {
     if (!_search) {
@@ -45,6 +59,91 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
     return _pipeline;
   }
 
+  async function getSessionManager() {
+    if (!_getOrCreateActiveSession) {
+      const mod = await import('../../engine/src/sessions/manager.js');
+      _getOrCreateActiveSession = mod.getOrCreateActiveSession;
+    }
+    return _getOrCreateActiveSession;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Session buffer — accumulate messages, flush periodically
+  // ---------------------------------------------------------------------------
+  const sessionBuffers = new Map<string, SessionBuffer>();
+
+  /** Build a buffer key from scope parameters */
+  function bufferKey(): string {
+    return `${config.tenantId}:${config.scope}:${config.scopeId}`;
+  }
+
+  /** Flush the session buffer: run extraction pipeline on all accumulated messages */
+  async function flushBuffer(key: string): Promise<void> {
+    const buf = sessionBuffers.get(key);
+    if (!buf || buf.messages.length === 0) return;
+
+    // Grab and clear the buffer immediately so new messages start a fresh batch
+    const messages = [...buf.messages];
+    const sessionId = buf.sessionId;
+    buf.messages = [];
+    if (buf.flushTimer) {
+      clearTimeout(buf.flushTimer);
+      buf.flushTimer = null;
+    }
+
+    const fullText = messages.join('\n---\n');
+
+    console.error(`[steno] Flushing session buffer: ${messages.length} messages, sessionId=${sessionId}`);
+
+    try {
+      const runPipeline = await getPipeline();
+      const result = await runPipeline(
+        {
+          storage: config.storage,
+          embedding: config.embedding,
+          cheapLLM: config.cheapLLM,
+          embeddingModel: config.embeddingModel,
+          embeddingDim: config.embeddingDim,
+          extractionTier: 'auto',
+        },
+        {
+          tenantId: config.tenantId,
+          scope: config.scope,
+          scopeId: config.scopeId,
+          sessionId,
+          inputType: 'raw_text',
+          data: fullText,
+        },
+      );
+      console.error(`[steno] Session flush done: ${result.factsCreated} facts, ${result.entitiesCreated} entities, ${result.edgesCreated} edges`);
+    } catch (err: any) {
+      console.error('[steno] Session flush pipeline error:', err?.message ?? err);
+    }
+  }
+
+  /** Schedule a flush after the inactivity delay, or flush immediately if buffer is full */
+  function scheduleFlush(key: string): void {
+    const buf = sessionBuffers.get(key);
+    if (!buf) return;
+
+    // Clear any existing timer
+    if (buf.flushTimer) {
+      clearTimeout(buf.flushTimer);
+      buf.flushTimer = null;
+    }
+
+    // Flush immediately if buffer is full
+    if (buf.messages.length >= MAX_BUFFER_SIZE) {
+      void flushBuffer(key);
+      return;
+    }
+
+    // Otherwise schedule a delayed flush
+    buf.flushTimer = setTimeout(() => {
+      void flushBuffer(key);
+    }, FLUSH_DELAY_MS);
+  }
+
   // ─── REMEMBER ───
   server.tool(
     'steno_remember',
@@ -59,11 +158,46 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
         return { content: [{ type: 'text' as const, text: 'Error: provide content or text' }] };
       }
 
+      // ── Session-based buffering ──
+      // Accumulate messages within a session. Extraction runs when the buffer
+      // is full (MAX_BUFFER_SIZE) or after an inactivity timeout (FLUSH_DELAY_MS).
+      const key = bufferKey();
+      let buf = sessionBuffers.get(key);
+
+      if (!buf) {
+        // Start or resume a session
+        let sessionId: string;
+        try {
+          const getOrCreate = await getSessionManager();
+          // SessionScope excludes 'session', but config.scope might be 'session'.
+          // Treat 'session' scope as 'user' for session tracking purposes.
+          const sessionScope = config.scope === 'session' ? 'user' : config.scope;
+          const session = await getOrCreate(config.storage, config.tenantId, sessionScope as any, config.scopeId);
+          sessionId = session.id;
+        } catch (err: any) {
+          console.error('[steno] Failed to create session, using ephemeral ID:', err?.message ?? err);
+          sessionId = crypto.randomUUID();
+        }
+
+        buf = {
+          sessionId,
+          messages: [],
+          lastActivity: new Date(),
+          flushTimer: null,
+        };
+        sessionBuffers.set(key, buf);
+      }
+
+      // Buffer the message
+      buf.messages.push(memoryText);
+      buf.lastActivity = new Date();
+
       // FAST PATH: For short, already-clean facts (< 200 chars, single sentence),
       // skip the LLM extraction pipeline and store directly. ~200ms vs ~5000ms.
+      // Only use fast path for the first message in a buffer (no session context yet).
       const isSingleFact = memoryText.length < 200 && !memoryText.includes('\n') && memoryText.split('.').length <= 2;
 
-      if (isSingleFact) {
+      if (isSingleFact && buf.messages.length === 1) {
         const factId = crypto.randomUUID();
         const embedding = await config.embedding.embed(memoryText);
 
@@ -110,6 +244,7 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
             tenantId: config.tenantId,
             scope: config.scope,
             scopeId: config.scopeId,
+            sessionId: buf.sessionId,
             content: memoryText,
             embeddingModel: config.embeddingModel,
             embeddingDim: config.embeddingDim,
@@ -124,6 +259,8 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
             contradictionStatus: 'none',
           });
           await linkToUser(factId);
+          // Clear the buffer since we already stored this fact directly
+          buf.messages = [];
           return {
             content: [{ type: 'text' as const, text: `Remembered (1 fact updated, 0 entities, 0 edges)` }],
           };
@@ -136,6 +273,7 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
           tenantId: config.tenantId,
           scope: config.scope,
           scopeId: config.scopeId,
+          sessionId: buf.sessionId,
           content: memoryText,
           embeddingModel: config.embeddingModel,
           embeddingDim: config.embeddingDim,
@@ -150,39 +288,39 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
           contradictionStatus: 'none',
         });
         await linkToUser(factId);
+        // Clear the buffer since we already stored this fact directly
+        buf.messages = [];
         return {
           content: [{ type: 'text' as const, text: `Remembered (1 fact, 0 entities, 0 edges)` }],
         };
       }
 
-      // FULL PATH: For longer text, multi-sentence content, conversations.
-      // Fire-and-forget: return immediately, extract in background.
-      // This prevents blocking the conversation for 5-10s while the pipeline runs.
-      const runPipeline = await getPipeline();
-      void runPipeline(
-        {
-          storage: config.storage,
-          embedding: config.embedding,
-          cheapLLM: config.cheapLLM,
-          embeddingModel: config.embeddingModel,
-          embeddingDim: config.embeddingDim,
-          extractionTier: 'auto',
-        },
-        {
-          tenantId: config.tenantId,
-          scope: config.scope,
-          scopeId: config.scopeId,
-          inputType: 'raw_text',
-          data: memoryText,
-        },
-      ).then((result) => {
-        console.error(`[steno] Background extraction done: ${result.factsCreated} facts, ${result.entitiesCreated} entities, ${result.edgesCreated} edges`);
-      }).catch((err: any) => {
-        console.error('[steno] Background pipeline error:', err?.message ?? err);
-      });
+      // BUFFERED PATH: Accumulate and schedule flush.
+      // Returns immediately — extraction happens in the background when flushed.
+      scheduleFlush(key);
 
+      const pending = buf.messages.length;
       return {
-        content: [{ type: 'text' as const, text: `Remembering... (extracting in background)` }],
+        content: [{ type: 'text' as const, text: `Buffered (${pending}/${MAX_BUFFER_SIZE} messages in session). Extraction runs on flush.` }],
+      };
+    },
+  );
+
+  // ─── FLUSH ───
+  server.tool(
+    'steno_flush',
+    'Force extraction of all buffered session messages. Use before searching if you just stored information and need it immediately available.',
+    {},
+    async () => {
+      const key = bufferKey();
+      const buf = sessionBuffers.get(key);
+      if (!buf || buf.messages.length === 0) {
+        return { content: [{ type: 'text' as const, text: 'No buffered messages to flush.' }] };
+      }
+      const count = buf.messages.length;
+      await flushBuffer(key);
+      return {
+        content: [{ type: 'text' as const, text: `Flushed ${count} buffered messages. Extraction complete.` }],
       };
     },
   );
@@ -196,6 +334,13 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
       limit: z.number().optional().describe('Max results (default 10)'),
     },
     async ({ query, limit }) => {
+      // Auto-flush any pending buffered messages before searching
+      const key = bufferKey();
+      const buf = sessionBuffers.get(key);
+      if (buf && buf.messages.length > 0) {
+        await flushBuffer(key);
+      }
+
       const searchFn = await getSearch();
       const results = await searchFn(
         { storage: config.storage, embedding: config.embedding },

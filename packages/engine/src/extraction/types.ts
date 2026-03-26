@@ -35,6 +35,8 @@ export interface ExtractedFact {
   relationType?: 'updates' | 'extends' | 'derives';
   /** The ID of the existing fact this relates to (set by dedup) */
   relatedFactId?: string;
+  /** Context-enriched version of content used for embedding (not shown to users) */
+  contextualContent?: string;
 }
 
 export interface ExtractedEntity {

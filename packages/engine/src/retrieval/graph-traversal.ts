@@ -8,7 +8,7 @@ export interface GraphSearchConfig {
   asOf?: Date;            // point-in-time temporal filter
 }
 
-const DEFAULT_MAX_DEPTH = 3;
+const DEFAULT_MAX_DEPTH = 2;
 const MAX_ALLOWED_DEPTH = 5;
 const DEFAULT_MAX_ENTITIES = 200;
 const MIN_TOKEN_LENGTH = 3;

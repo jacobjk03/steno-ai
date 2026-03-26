@@ -13,6 +13,7 @@ export interface SearchOptions {
     asOf?: Date;               // point-in-time query ("what did we know on this date?")
   };
   weights?: FusionWeights;     // override default fusion weights
+  tokenBudget?: number;        // max estimated tokens for results (rough: chars/4). Trims lowest-scored results to fit.
 }
 
 /** Configurable fusion weights (should sum to 1.0 — normalized if not) */

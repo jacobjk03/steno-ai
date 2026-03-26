@@ -27,6 +27,7 @@ export interface PipelineConfig {
   embeddingDim: number;
   decayHalfLifeDays?: number;
   decayNormalizationK?: number;
+  entityTypes?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -134,7 +135,7 @@ async function executeExtraction(
     }
 
     const llmResult = await extractWithLLM(
-      { llm: llmToUse, tier: llmTier },
+      { llm: llmToUse, tier: llmTier, entityTypes: config.entityTypes },
       textContent,
       existingFactsForLLM,
     );
@@ -151,7 +152,7 @@ async function executeExtraction(
       config.smartLLM
     ) {
       const smartResult = await extractWithLLM(
-        { llm: config.smartLLM, tier: 'smart_llm' },
+        { llm: config.smartLLM, tier: 'smart_llm', entityTypes: config.entityTypes },
         textContent,
         existingFactsForLLM,
       );
@@ -223,7 +224,7 @@ async function executeExtraction(
 
   // ── BATCH EMBED all extracted facts at once (1 API call instead of N) ──
   const factsToEmbed = contradictionResults.filter(r => r.fact.operation !== 'noop');
-  const factTexts = factsToEmbed.map(r => r.fact.content);
+  const factTexts = factsToEmbed.map(r => r.fact.contextualContent ?? r.fact.content);
   const factEmbeddings = factTexts.length > 0 ? await config.embedding.embedBatch(factTexts) : [];
   let factEmbIdx = 0;
 

@@ -104,9 +104,11 @@ Return ONLY a JSON object:
   ]
 }
 
-entity_type must be one of: person, organization, location, technology, concept, event.
+entity_type must be one of: {ENTITY_TYPES}.
 Entity names must be clean: no punctuation, no articles, no sentence fragments.
 Return ONLY valid JSON.`;
+
+export const DEFAULT_ENTITY_TYPES = ['person', 'organization', 'location', 'technology', 'concept', 'event'];
 
 // =============================================================================
 // DEDUP PROMPT — Classify new facts against existing ones
@@ -157,10 +159,12 @@ export function buildFactExtractionPrompt(input: string): LLMMessage[] {
  * Build the graph extraction prompt (Pass 2).
  * Takes extracted facts and produces entities + edges.
  */
-export function buildGraphExtractionPrompt(facts: string[]): LLMMessage[] {
+export function buildGraphExtractionPrompt(facts: string[], entityTypes?: string[]): LLMMessage[] {
   const factsList = facts.map((f, i) => `${i + 1}. ${f}`).join('\n');
+  const types = entityTypes ?? DEFAULT_ENTITY_TYPES;
+  const prompt = GRAPH_EXTRACTION_PROMPT.replace('{ENTITY_TYPES}', types.join(', '));
   return [
-    { role: 'system', content: GRAPH_EXTRACTION_PROMPT },
+    { role: 'system', content: prompt },
     { role: 'user', content: `Extract entities and relationships from these facts:\n\n${factsList}` },
   ];
 }

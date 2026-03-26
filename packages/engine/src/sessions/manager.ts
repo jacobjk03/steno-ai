@@ -3,6 +3,23 @@ import type { LLMAdapter } from '../adapters/llm.js';
 import type { Session } from '../models/session.js';
 import type { SessionScope } from '../config.js';
 
+/**
+ * Find an active (not ended) session for the given scope, or create a new one.
+ */
+export async function getOrCreateActiveSession(
+  storage: StorageAdapter,
+  tenantId: string,
+  scope: SessionScope,
+  scopeId: string,
+): Promise<Session> {
+  // Fetch a few recent sessions — the active one (if any) is likely the most recent,
+  // but we check a small batch in case the latest was already ended.
+  const sessions = await storage.getSessionsByScope(tenantId, scope, scopeId, { limit: 5 });
+  const active = sessions.data.find(s => !s.endedAt);
+  if (active) return active;
+  return startSession(storage, tenantId, scope, scopeId);
+}
+
 export async function startSession(
   storage: StorageAdapter,
   tenantId: string,

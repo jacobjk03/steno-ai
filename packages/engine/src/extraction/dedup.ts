@@ -103,12 +103,24 @@ Classify the new fact.`,
 
     const operation = isValidDedupOp(parsed.operation) ? parsed.operation : 'add';
 
+    // Map dedup operations to relational versioning types
+    const relationType = operation === 'update' ? 'updates' as const
+      : operation === 'contradict' ? 'updates' as const
+      : undefined;
+
+    // Find the best matching existing fact for the relation
+    const relatedFactId = (operation === 'update' || operation === 'contradict') && existingMatches.length > 0
+      ? existingMatches[0]!.id
+      : undefined;
+
     return {
       operation,
       existingLineageId:
         typeof parsed.existing_lineage_id === 'string' ? parsed.existing_lineage_id : undefined,
       contradictsFactId:
         typeof parsed.contradicts_fact_id === 'string' ? parsed.contradicts_fact_id : undefined,
+      relationType,
+      relatedFactId,
     };
   } catch {
     // If LLM fails, default to 'add' (safe — might create a duplicate, but won't lose data)

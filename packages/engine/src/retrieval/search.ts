@@ -53,12 +53,19 @@ export async function search(
   //    All parallel = single round trip time.
   const t0 = Date.now();
 
+  const tCompound = Date.now();
+  const compoundPromise = compoundSearchSignal(config.storage, effectiveEmbedding, options.query, options.tenantId, options.scope, options.scopeId, limit * fetchMultiplier).catch(() => ({ vectorCandidates: [] as Candidate[], keywordCandidates: [] as Candidate[] }));
+  const tGraph = Date.now();
+  const graphPromise = graphSearch(config.storage, effectiveEmbedding, options.query, options.tenantId, options.scope, options.scopeId, limit * fetchMultiplier, { maxDepth: config.graphMaxDepth, maxEntities: config.graphMaxEntities, asOf: options.temporalFilter?.asOf }).catch(() => [] as Candidate[]);
+  const tTrigger = Date.now();
+  const triggerPromise = matchTriggers(config.storage, effectiveEmbedding, options.query, options.tenantId, options.scope, options.scopeId).catch(() => ({ candidates: [] as Candidate[], triggersMatched: [] as string[] }));
+
   const [compoundResult, graphSettled, triggerSettled] = await Promise.all([
-    compoundSearchSignal(config.storage, effectiveEmbedding, options.query, options.tenantId, options.scope, options.scopeId, limit * fetchMultiplier).catch(() => ({ vectorCandidates: [] as Candidate[], keywordCandidates: [] as Candidate[] })),
-    graphSearch(config.storage, effectiveEmbedding, options.query, options.tenantId, options.scope, options.scopeId, limit * fetchMultiplier, { maxDepth: config.graphMaxDepth, maxEntities: config.graphMaxEntities, asOf: options.temporalFilter?.asOf }).catch(() => [] as Candidate[]),
-    matchTriggers(config.storage, effectiveEmbedding, options.query, options.tenantId, options.scope, options.scopeId).catch(() => ({ candidates: [] as Candidate[], triggersMatched: [] as string[] })),
+    compoundPromise.then(r => { console.error(`[steno-search] compound: ${Date.now() - tCompound}ms (vec=${r.vectorCandidates.length}, kw=${r.keywordCandidates.length})`); return r; }),
+    graphPromise.then(r => { console.error(`[steno-search] graph: ${Date.now() - tGraph}ms (${Array.isArray(r) ? r.length : 0} candidates)`); return r; }),
+    triggerPromise.then(r => { console.error(`[steno-search] trigger: ${Date.now() - tTrigger}ms`); return r; }),
   ]);
-  console.error(`[steno-search] Signals: ${Date.now() - t0}ms (compound=ok, graph=${Array.isArray(graphSettled) && graphSettled.length > 0 ? 'ok' : 'empty'}, trigger=ok)`);
+  console.error(`[steno-search] Signals total: ${Date.now() - t0}ms`);
 
   const vectorCandidates = compoundResult.vectorCandidates;
   const keywordCandidates = compoundResult.keywordCandidates;
@@ -76,8 +83,8 @@ export async function search(
   let queryEmbedding: number[] | null = null;
   const candidateEmbeddings = new Map<string, number[]>();
 
-  // Only rerank if we have >5 candidates — for small sets the original order is fine
-  if (allPreRerankCandidates.length > 5) {
+  // Only rerank if we have >10 candidates — for small sets the original order is fine
+  if (allPreRerankCandidates.length > 10) {
     try {
       const uniqueTexts = new Map<string, string>();
       for (const c of allPreRerankCandidates) {
@@ -181,6 +188,21 @@ export async function search(
   }
   if (updatedFactIds.size > 0) {
     dedupedResults = dedupedResults.filter(r => !updatedFactIds.has(r.fact.id));
+  }
+
+  // 5d. Token budget trimming — keep highest-scored results that fit within budget
+  if (options.tokenBudget && options.tokenBudget > 0) {
+    let tokenCount = 0;
+    const budgetResults: typeof dedupedResults = [];
+    for (const r of dedupedResults) {
+      // Rough token estimate: content chars / 4, plus sourceChunk if present
+      const factTokens = Math.ceil(r.fact.content.length / 4) +
+        (r.fact.sourceChunk ? Math.ceil(r.fact.sourceChunk.length / 4) : 0);
+      if (tokenCount + factTokens > options.tokenBudget) break;
+      tokenCount += factTokens;
+      budgetResults.push(r);
+    }
+    dedupedResults = budgetResults;
   }
 
   // 6. Enrich with contradiction context
