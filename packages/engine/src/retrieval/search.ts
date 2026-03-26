@@ -162,18 +162,28 @@ export async function search(
   // 5. Fuse and rank
   const fusionResults = fuseAndRank(scoredCandidates, weights, limit);
 
-  // 5b. Lineage dedup — keep only the highest-scored version per lineage
+  // 5b. Lineage dedup — keep only the NEWEST version per lineage
   //     Git-style append-only means multiple versions coexist. For normal queries,
-  //     show only the latest. For "includeHistory" queries, show all versions.
+  //     show only the latest version (by createdAt). For "includeHistory", show all.
   let dedupedResults = fusionResults;
   if (!options.includeHistory) {
-    const lineageSeen = new Map<string, number>();
+    const lineageBest = new Map<string, { idx: number; createdAt: Date; score: number }>();
+    for (let i = 0; i < fusionResults.length; i++) {
+      const r = fusionResults[i]!;
+      const lid = r.fact.lineageId;
+      if (!lid) continue;
+      const existing = lineageBest.get(lid);
+      const createdAt = new Date(r.fact.createdAt);
+      if (!existing || createdAt > existing.createdAt) {
+        lineageBest.set(lid, { idx: i, createdAt, score: r.score });
+      }
+    }
+    const keepIndices = new Set(Array.from(lineageBest.values()).map(v => v.idx));
+    // Also keep facts with no lineage match (unique facts)
     dedupedResults = fusionResults.filter((r, idx) => {
       const lid = r.fact.lineageId;
       if (!lid) return true;
-      if (lineageSeen.has(lid)) return false;
-      lineageSeen.set(lid, idx);
-      return true;
+      return keepIndices.has(idx);
     });
   }
 
