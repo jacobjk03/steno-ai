@@ -58,7 +58,7 @@ export async function compoundSearchSignal(
     scope,
     scopeId,
     limit,
-    minSimilarity: 0.5,  // filter out low-quality matches early (was 0.0)
+    minSimilarity: 0.25,  // low threshold — let fusion scoring handle ranking, not hard cutoffs
   });
 
   const vectorCandidates: Candidate[] = [];
