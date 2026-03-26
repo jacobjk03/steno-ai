@@ -96,6 +96,16 @@ async function main(): Promise<void> {
     embeddingDim,
   });
 
+  // Handle EPIPE gracefully — Claude Desktop may disconnect mid-response
+  process.stdout.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EPIPE') return; // Client disconnected, ignore
+    console.error('[steno] stdout error:', err);
+  });
+  process.stdin.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EPIPE') return;
+    console.error('[steno] stdin error:', err);
+  });
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }
