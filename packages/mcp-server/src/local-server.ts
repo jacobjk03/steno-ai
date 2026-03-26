@@ -17,6 +17,7 @@ export interface LocalServerConfig {
   scopeId: string;
   embeddingModel: string;
   embeddingDim: number;
+  domainEntityTypes?: import('../../engine/src/config.js').DomainEntityType[];
 }
 
 // ---------------------------------------------------------------------------
@@ -147,6 +148,7 @@ CRITICAL RULES:
           embeddingModel: config.embeddingModel,
           embeddingDim: config.embeddingDim,
           extractionTier: 'auto',
+          domainEntityTypes: config.domainEntityTypes,
         },
         {
           tenantId: config.tenantId,

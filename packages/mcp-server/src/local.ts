@@ -94,6 +94,36 @@ async function main(): Promise<void> {
     scopeId,
     embeddingModel,
     embeddingDim,
+    domainEntityTypes: [
+      {
+        name: 'vehicle',
+        description: 'A car, truck, motorcycle, or other vehicle owned, wanted, or discussed by the user',
+        fields: [
+          { name: 'make', type: 'string' as const, description: 'Manufacturer (Mercedes, BMW, Toyota, etc.)', required: false },
+          { name: 'model', type: 'string' as const, description: 'Model name (E350, M3, Camry, etc.)', required: false },
+          { name: 'year', type: 'string' as const, description: 'Model year', required: false },
+          { name: 'ownership', type: 'string' as const, description: 'owned, wanted, previously_owned, test_driven', required: false },
+        ],
+      },
+      {
+        name: 'startup',
+        description: 'A startup company discussed in context of jobs, investments, partnerships, or competition',
+        fields: [
+          { name: 'stage', type: 'string' as const, description: 'pre-seed, seed, series-a, series-b, growth, public', required: false },
+          { name: 'relationship', type: 'string' as const, description: 'competitor, partner, prospect, employer, rejected', required: false },
+          { name: 'funding', type: 'string' as const, description: 'Known funding amount or status', required: false },
+        ],
+      },
+      {
+        name: 'project',
+        description: 'A software project, product, or side project the user is building or has built',
+        fields: [
+          { name: 'status', type: 'string' as const, description: 'active, paused, completed, abandoned', required: false },
+          { name: 'tech_stack', type: 'string' as const, description: 'Primary technologies used', required: false },
+          { name: 'user_role', type: 'string' as const, description: 'founder, lead, contributor, user', required: false },
+        ],
+      },
+    ],
   });
 
   // Handle EPIPE gracefully — Claude Desktop may disconnect mid-response
