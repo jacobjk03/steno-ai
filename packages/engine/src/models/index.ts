@@ -10,3 +10,4 @@ export * from './api-key.js';
 export * from './usage-record.js';
 export * from './fact-entity.js';
 export * from './webhook.js';
+export * from './session-message.js';
