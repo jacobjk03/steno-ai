@@ -53,10 +53,16 @@ For identity/trait facts, state them DIRECTLY:
    - "User prefers dark mode" → ed: null (timeless preference)
    If the conversation header says "[This conversation took place on 8 May, 2023]", set "dd" to "2023-05-08" for all facts.
 
+9. PATTERN DETECTION: If the text reveals a recurring behavior, preference, routine, or coping strategy, extract it as a pattern fact with higher importance (0.7-0.9).
+   - "I always procrastinate on Mondays" → {"t": "User tends to procrastinate on Mondays", "i": 0.8, "ed": null, "dd": "...", "p": true}
+   - "Coffee helps me focus" → {"t": "User finds that coffee helps with focus", "i": 0.7, "ed": null, "dd": "...", "p": true}
+   Patterns are behavioral insights — routines, coping strategies, energy patterns, recurring struggles.
+   Mark patterns with "p": true in the output. Regular facts use "p": false.
+
 ## OUTPUT
 
 Return ONLY a JSON object:
-{"facts": [{"t": "fact text here", "i": 0.7, "ed": "2023-05-07", "dd": "2023-05-08"}, {"t": "another fact", "i": 0.3, "ed": null, "dd": "2023-05-08"}]}
+{"facts": [{"t": "fact text here", "i": 0.7, "ed": "2023-05-07", "dd": "2023-05-08", "p": false}, {"t": "another fact", "i": 0.3, "ed": null, "dd": "2023-05-08", "p": false}]}
 
 - ed (eventDate): ISO date string of WHEN the event occurred, or null if not temporal
 - dd (documentDate): ISO date string of when the conversation took place, from context header
