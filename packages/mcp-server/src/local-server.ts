@@ -70,6 +70,14 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
   const server = new McpServer({
     name: 'steno-local',
     version: '0.1.0',
+    instructions: `You have access to the user's persistent long-term memory via Steno.
+
+CRITICAL RULES:
+1. ALWAYS call steno_recall BEFORE answering ANY question about the user, their life, work, projects, people they know, preferences, past events, companies, or decisions.
+2. When the user shares personal information, call steno_remember to store it, then ALWAYS call steno_flush immediately after to ensure extraction happens now.
+3. Before context compaction or session end, call steno_remember with a summary of key decisions and progress, then steno_flush.
+4. Never say "I don't have information about that" without first checking steno_recall.
+5. Steno memory persists across ALL conversations — it knows things from past sessions that your conversation history does not.`,
   });
 
   // Lazy import to avoid loading heavy modules at startup
@@ -390,6 +398,32 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
           }
         }
       } catch { /* batch edge lookup failed */ }
+
+      // Inject missing priority facts that are referenced by edges but not in recall results
+      // This ensures Priority #1 (root node) always shows up when its children are recalled
+      const resultFactIds = new Set(results.results.map(r => r.fact.id));
+      try {
+        const { data: allPriorities } = await (config.storage as any).client
+          .from('facts')
+          .select('*')
+          .eq('tenant_id', config.tenantId)
+          .not('metadata->priority_order', 'is', null);
+        if (allPriorities) {
+          for (const pf of allPriorities) {
+            if (!resultFactIds.has(pf.id) && (depMap.has(pf.id) || priorityLabels.has(pf.id))) {
+              // This priority is referenced but not in results — inject it
+              const camelFact = Object.fromEntries(
+                Object.entries(pf).map(([k, v]) => [k.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()), v])
+              );
+              results.results.push({
+                fact: camelFact as any,
+                score: 0.1, // Low score since it wasn't directly matched
+                signals: { vectorScore: 0, keywordScore: 0, graphScore: 0.5, recencyScore: 0, salienceScore: 0, temporalScore: 0 },
+              });
+            }
+          }
+        }
+      } catch { /* injection failed */ }
 
       // Sort results: priorities first (by priority_order), then regular memories
       const sortedResults = [...results.results].sort((a, b) => {
