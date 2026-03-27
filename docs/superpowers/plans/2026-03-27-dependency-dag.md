@@ -96,7 +96,7 @@ Using the Supabase Management API:
 
 ```bash
 curl -s -X POST "https://api.supabase.com/v1/projects/zhqcetwuecedebrbawxl/database/query" \
-  -H "Authorization: Bearer sbp_5a61307562a8835ee8459c391a7c4c67bec95fda" \
+  -H "Authorization: Bearer $SUPABASE_PAT" \
   -H "Content-Type: application/json" \
   -d '{"query": "ALTER TABLE edges DROP CONSTRAINT IF EXISTS edges_edge_type_check; ALTER TABLE edges ADD CONSTRAINT edges_edge_type_check CHECK (edge_type = ANY (ARRAY['"'"'associative'"'"', '"'"'causal'"'"', '"'"'temporal'"'"', '"'"'contradictory'"'"', '"'"'hierarchical'"'"', '"'"'updates'"'"', '"'"'extends'"'"', '"'"'derives'"'"', '"'"'precedes'"'"', '"'"'depends_on'"'"', '"'"'deadline'"'"', '"'"'semantic'"'"', '"'"'contradicts'"'"', '"'"'supports'"'"']));"}'
 ```
