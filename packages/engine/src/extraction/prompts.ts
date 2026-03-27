@@ -51,7 +51,9 @@ For identity/trait facts, state them DIRECTLY:
 8. For EVERY fact, include "ed" (event date) if the fact describes something that happened at a specific time.
    - "User went to the gym on May 7" → ed: "2023-05-07"
    - "User prefers dark mode" → ed: null (timeless preference)
-   If the conversation header says "[This conversation took place on 8 May, 2023]", set "dd" to "2023-05-08" for all facts.
+   - If only a month is mentioned (e.g., "in March 2026") and today IS in that month, use TODAY's date from the header.
+   - If only a month is mentioned and it's a PAST month, use the 15th as midpoint.
+   Set "dd" (document date) to today's date from the header for ALL facts — this is when the conversation happened.
 
 9. PATTERN DETECTION: If the text reveals a recurring behavior, preference, routine, or coping strategy, extract it as a pattern fact with higher importance (0.7-0.9).
    - "I always procrastinate on Mondays" → {"t": "User tends to procrastinate on Mondays", "i": 0.8, "ed": null, "dd": "...", "p": true}
@@ -156,9 +158,10 @@ export interface ExistingFact {
  * Simple: extract facts as strings.
  */
 export function buildFactExtractionPrompt(input: string): LLMMessage[] {
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
   return [
     { role: 'system', content: FACT_EXTRACTION_PROMPT },
-    { role: 'user', content: `Extract facts from this text:\n\n${input}` },
+    { role: 'user', content: `[Today's date: ${today}]\n\nExtract facts from this text:\n\n${input}` },
   ];
 }
 
