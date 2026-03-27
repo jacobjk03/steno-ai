@@ -22,6 +22,7 @@ For identity/trait facts, state them DIRECTLY:
 ## RULES
 
 1. Extract SELF-CONTAINED atomic facts. Each fact must be understandable on its own, without the original conversation.
+   HOWEVER: if multiple pieces of information describe the SAME event or feature, combine them into 1-2 dense facts rather than 5-6 thin ones. Prefer "User shipped X with features A, B, and C" over three separate facts about A, B, and C individually.
 
 2. **DATES ARE CRITICAL** — Resolve ALL temporal references to exact dates:
    - "yesterday" → "on 7 May 2023"
