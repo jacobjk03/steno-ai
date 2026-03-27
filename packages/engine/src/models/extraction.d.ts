@@ -28,13 +28,12 @@ export declare const ExtractionSchema: z.ZodObject<{
 }, "strip", z.ZodTypeAny, {
     status: "queued" | "processing" | "completed" | "failed" | "deduped";
     id: string;
-    error: string | null;
     tenantId: string;
     scope: "user" | "agent" | "session" | "hive";
     scopeId: string;
     sessionId: string | null;
     createdAt: Date;
-    inputType: "url" | "image" | "audio" | "code" | "conversation" | "document" | "raw_text";
+    inputType: "code" | "conversation" | "document" | "url" | "raw_text" | "image" | "audio";
     inputData: string | Record<string, unknown> | null;
     inputHash: string;
     inputSize: number | null;
@@ -49,18 +48,18 @@ export declare const ExtractionSchema: z.ZodObject<{
     costTokensOutput: number;
     costUsd: number;
     durationMs: number | null;
+    error: string | null;
     retryCount: number;
     completedAt: Date | null;
 }, {
     status: "queued" | "processing" | "completed" | "failed" | "deduped";
     id: string;
-    error: string | null;
     tenantId: string;
     scope: "user" | "agent" | "session" | "hive";
     scopeId: string;
     sessionId: string | null;
     createdAt: Date;
-    inputType: "url" | "image" | "audio" | "code" | "conversation" | "document" | "raw_text";
+    inputType: "code" | "conversation" | "document" | "url" | "raw_text" | "image" | "audio";
     inputData: string | Record<string, unknown> | null;
     inputHash: string;
     inputSize: number | null;
@@ -75,6 +74,7 @@ export declare const ExtractionSchema: z.ZodObject<{
     costTokensOutput: number;
     costUsd: number;
     durationMs: number | null;
+    error: string | null;
     retryCount: number;
     completedAt: Date | null;
 }>;
@@ -92,7 +92,7 @@ export declare const CreateExtractionSchema: z.ZodObject<{
     tenantId: string;
     scope: "user" | "agent" | "session" | "hive";
     scopeId: string;
-    inputType: "url" | "image" | "audio" | "code" | "conversation" | "document" | "raw_text";
+    inputType: "code" | "conversation" | "document" | "url" | "raw_text" | "image" | "audio";
     inputData: string;
     inputHash: string;
     sessionId?: string | undefined;
@@ -101,7 +101,7 @@ export declare const CreateExtractionSchema: z.ZodObject<{
     tenantId: string;
     scope: "user" | "agent" | "session" | "hive";
     scopeId: string;
-    inputType: "url" | "image" | "audio" | "code" | "conversation" | "document" | "raw_text";
+    inputType: "code" | "conversation" | "document" | "url" | "raw_text" | "image" | "audio";
     inputData: string;
     inputHash: string;
     sessionId?: string | undefined;

@@ -8,7 +8,8 @@ export interface GraphSearchConfig {
 }
 /**
  * Tokenize query into candidate entity names.
- * Splits on whitespace, filters short words (< 3 chars), lowercases for canonical lookup.
+ * Splits on whitespace and dots, filters short words (< 2 chars), lowercases for canonical lookup.
+ * Also preserves dot-separated names as candidate names (e.g., "clean.ai" → tokens ["clean", "ai"] + candidate "clean.ai")
  */
 export declare function tokenizeQuery(query: string): string[];
 /**

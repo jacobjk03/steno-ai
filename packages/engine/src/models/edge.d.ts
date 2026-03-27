@@ -5,7 +5,7 @@ export declare const EdgeSchema: z.ZodObject<{
     sourceId: z.ZodString;
     targetId: z.ZodString;
     relation: z.ZodString;
-    edgeType: z.ZodEnum<["associative", "causal", "temporal", "contradictory", "hierarchical"]>;
+    edgeType: z.ZodEnum<["associative", "causal", "temporal", "contradictory", "hierarchical", "updates", "extends", "derives"]>;
     weight: z.ZodDefault<z.ZodNumber>;
     validFrom: z.ZodDate;
     validUntil: z.ZodNullable<z.ZodDate>;
@@ -24,7 +24,7 @@ export declare const EdgeSchema: z.ZodObject<{
     sourceId: string;
     targetId: string;
     relation: string;
-    edgeType: "associative" | "causal" | "temporal" | "contradictory" | "hierarchical";
+    edgeType: "temporal" | "associative" | "causal" | "contradictory" | "hierarchical" | "updates" | "extends" | "derives";
     weight: number;
     factId: string | null;
 }, {
@@ -38,7 +38,7 @@ export declare const EdgeSchema: z.ZodObject<{
     sourceId: string;
     targetId: string;
     relation: string;
-    edgeType: "associative" | "causal" | "temporal" | "contradictory" | "hierarchical";
+    edgeType: "temporal" | "associative" | "causal" | "contradictory" | "hierarchical" | "updates" | "extends" | "derives";
     factId: string | null;
     weight?: number | undefined;
 }>;
@@ -48,7 +48,7 @@ export declare const CreateEdgeSchema: z.ZodObject<{
     sourceId: z.ZodString;
     targetId: z.ZodString;
     relation: z.ZodString;
-    edgeType: z.ZodEnum<["associative", "causal", "temporal", "contradictory", "hierarchical"]>;
+    edgeType: z.ZodEnum<["associative", "causal", "temporal", "contradictory", "hierarchical", "updates", "extends", "derives"]>;
     weight: z.ZodDefault<z.ZodNumber>;
     factId: z.ZodOptional<z.ZodString>;
     confidence: z.ZodDefault<z.ZodNumber>;
@@ -60,7 +60,7 @@ export declare const CreateEdgeSchema: z.ZodObject<{
     sourceId: string;
     targetId: string;
     relation: string;
-    edgeType: "associative" | "causal" | "temporal" | "contradictory" | "hierarchical";
+    edgeType: "temporal" | "associative" | "causal" | "contradictory" | "hierarchical" | "updates" | "extends" | "derives";
     weight: number;
     factId?: string | undefined;
 }, {
@@ -68,7 +68,7 @@ export declare const CreateEdgeSchema: z.ZodObject<{
     sourceId: string;
     targetId: string;
     relation: string;
-    edgeType: "associative" | "causal" | "temporal" | "contradictory" | "hierarchical";
+    edgeType: "temporal" | "associative" | "causal" | "contradictory" | "hierarchical" | "updates" | "extends" | "derives";
     confidence?: number | undefined;
     metadata?: Record<string, unknown> | undefined;
     weight?: number | undefined;

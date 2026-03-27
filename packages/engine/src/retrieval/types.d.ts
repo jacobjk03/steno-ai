@@ -12,6 +12,7 @@ export interface SearchOptions {
         asOf?: Date;
     };
     weights?: FusionWeights;
+    tokenBudget?: number;
 }
 /** Configurable fusion weights (should sum to 1.0 — normalized if not) */
 export interface FusionWeights {
@@ -20,6 +21,7 @@ export interface FusionWeights {
     graph: number;
     recency: number;
     salience: number;
+    temporal: number;
 }
 /** A single search result with all signal scores */
 export interface SearchResult {
@@ -31,6 +33,7 @@ export interface SearchResult {
         graphScore: number;
         recencyScore: number;
         salienceScore: number;
+        temporalScore: number;
     };
     triggeredBy?: string;
     contradiction?: {
@@ -59,6 +62,7 @@ export interface Candidate {
     graphScore: number;
     recencyScore: number;
     salienceScore: number;
+    temporalScore: number;
     source: 'vector' | 'keyword' | 'graph' | 'trigger';
     triggeredBy?: string;
 }

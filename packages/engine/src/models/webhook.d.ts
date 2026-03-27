@@ -11,9 +11,9 @@ export declare const WebhookSchema: z.ZodObject<{
     active: z.ZodDefault<z.ZodBoolean>;
     createdAt: z.ZodDate;
 }, "strip", z.ZodTypeAny, {
+    active: boolean;
     url: string;
     id: string;
-    active: boolean;
     tenantId: string;
     createdAt: Date;
     events: ("extraction.completed" | "extraction.failed" | "trigger.fired" | "usage.limit_approaching" | "usage.limit_exceeded")[];

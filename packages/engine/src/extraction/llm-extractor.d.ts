@@ -1,9 +1,11 @@
 import type { LLMAdapter } from '../adapters/llm.js';
 import type { ExtractionResult } from './types.js';
-import type { ExtractionTier } from '../config.js';
+import type { ExtractionTier, DomainEntityType } from '../config.js';
 export interface LLMExtractorConfig {
     llm: LLMAdapter;
     tier: ExtractionTier;
+    entityTypes?: string[];
+    domainEntityTypes?: DomainEntityType[];
 }
 /**
  * Two-pass extraction like Mem0:

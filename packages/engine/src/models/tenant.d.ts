@@ -15,18 +15,83 @@ export declare const TenantSchema: z.ZodObject<{
             graph: z.ZodDefault<z.ZodNumber>;
             recency: z.ZodDefault<z.ZodNumber>;
             salience: z.ZodDefault<z.ZodNumber>;
+            temporal: z.ZodDefault<z.ZodNumber>;
         }, "strip", z.ZodTypeAny, {
             vector: number;
             keyword: number;
             graph: number;
             recency: number;
             salience: number;
+            temporal: number;
         }, {
             vector?: number | undefined;
             keyword?: number | undefined;
             graph?: number | undefined;
             recency?: number | undefined;
             salience?: number | undefined;
+            temporal?: number | undefined;
+        }>>;
+        domainSchema: z.ZodOptional<z.ZodObject<{
+            entityTypes: z.ZodDefault<z.ZodArray<z.ZodObject<{
+                name: z.ZodString;
+                description: z.ZodString;
+                fields: z.ZodDefault<z.ZodArray<z.ZodObject<{
+                    name: z.ZodString;
+                    type: z.ZodEnum<["string", "number", "boolean", "date"]>;
+                    description: z.ZodString;
+                    required: z.ZodDefault<z.ZodBoolean>;
+                }, "strip", z.ZodTypeAny, {
+                    name: string;
+                    type: "string" | "number" | "boolean" | "date";
+                    description: string;
+                    required: boolean;
+                }, {
+                    name: string;
+                    type: "string" | "number" | "boolean" | "date";
+                    description: string;
+                    required?: boolean | undefined;
+                }>, "many">>;
+            }, "strip", z.ZodTypeAny, {
+                name: string;
+                description: string;
+                fields: {
+                    name: string;
+                    type: "string" | "number" | "boolean" | "date";
+                    description: string;
+                    required: boolean;
+                }[];
+            }, {
+                name: string;
+                description: string;
+                fields?: {
+                    name: string;
+                    type: "string" | "number" | "boolean" | "date";
+                    description: string;
+                    required?: boolean | undefined;
+                }[] | undefined;
+            }>, "many">>;
+        }, "strip", z.ZodTypeAny, {
+            entityTypes: {
+                name: string;
+                description: string;
+                fields: {
+                    name: string;
+                    type: "string" | "number" | "boolean" | "date";
+                    description: string;
+                    required: boolean;
+                }[];
+            }[];
+        }, {
+            entityTypes?: {
+                name: string;
+                description: string;
+                fields?: {
+                    name: string;
+                    type: "string" | "number" | "boolean" | "date";
+                    description: string;
+                    required?: boolean | undefined;
+                }[] | undefined;
+            }[] | undefined;
         }>>;
     }, "strip", z.ZodTypeAny, {
         embeddingModel: string;
@@ -40,7 +105,20 @@ export declare const TenantSchema: z.ZodObject<{
             graph: number;
             recency: number;
             salience: number;
+            temporal: number;
         };
+        domainSchema?: {
+            entityTypes: {
+                name: string;
+                description: string;
+                fields: {
+                    name: string;
+                    type: "string" | "number" | "boolean" | "date";
+                    description: string;
+                    required: boolean;
+                }[];
+            }[];
+        } | undefined;
     }, {
         embeddingModel?: string | undefined;
         embeddingDim?: number | undefined;
@@ -53,6 +131,19 @@ export declare const TenantSchema: z.ZodObject<{
             graph?: number | undefined;
             recency?: number | undefined;
             salience?: number | undefined;
+            temporal?: number | undefined;
+        } | undefined;
+        domainSchema?: {
+            entityTypes?: {
+                name: string;
+                description: string;
+                fields?: {
+                    name: string;
+                    type: "string" | "number" | "boolean" | "date";
+                    description: string;
+                    required?: boolean | undefined;
+                }[] | undefined;
+            }[] | undefined;
         } | undefined;
     }>;
     plan: z.ZodEnum<["free", "pro", "scale", "enterprise"]>;
@@ -64,6 +155,12 @@ export declare const TenantSchema: z.ZodObject<{
     createdAt: z.ZodDate;
     updatedAt: z.ZodDate;
 }, "strip", z.ZodTypeAny, {
+    name: string;
+    active: boolean;
+    id: string;
+    createdAt: Date;
+    updatedAt: Date;
+    slug: string;
     config: {
         embeddingModel: string;
         embeddingDim: number;
@@ -76,20 +173,33 @@ export declare const TenantSchema: z.ZodObject<{
             graph: number;
             recency: number;
             salience: number;
+            temporal: number;
         };
+        domainSchema?: {
+            entityTypes: {
+                name: string;
+                description: string;
+                fields: {
+                    name: string;
+                    type: "string" | "number" | "boolean" | "date";
+                    description: string;
+                    required: boolean;
+                }[];
+            }[];
+        } | undefined;
     };
-    name: string;
-    id: string;
-    active: boolean;
-    createdAt: Date;
-    updatedAt: Date;
-    slug: string;
     plan: "free" | "pro" | "scale" | "enterprise";
     tokenLimitMonthly: number;
     queryLimitMonthly: number;
     stripeCustomerId: string | null;
     stripeSubscriptionId: string | null;
 }, {
+    name: string;
+    active: boolean;
+    id: string;
+    createdAt: Date;
+    updatedAt: Date;
+    slug: string;
     config: {
         embeddingModel?: string | undefined;
         embeddingDim?: number | undefined;
@@ -102,14 +212,21 @@ export declare const TenantSchema: z.ZodObject<{
             graph?: number | undefined;
             recency?: number | undefined;
             salience?: number | undefined;
+            temporal?: number | undefined;
+        } | undefined;
+        domainSchema?: {
+            entityTypes?: {
+                name: string;
+                description: string;
+                fields?: {
+                    name: string;
+                    type: "string" | "number" | "boolean" | "date";
+                    description: string;
+                    required?: boolean | undefined;
+                }[] | undefined;
+            }[] | undefined;
         } | undefined;
     };
-    name: string;
-    id: string;
-    active: boolean;
-    createdAt: Date;
-    updatedAt: Date;
-    slug: string;
     plan: "free" | "pro" | "scale" | "enterprise";
     tokenLimitMonthly: number;
     queryLimitMonthly: number;
@@ -133,18 +250,83 @@ export declare const CreateTenantSchema: z.ZodObject<{
             graph: z.ZodDefault<z.ZodNumber>;
             recency: z.ZodDefault<z.ZodNumber>;
             salience: z.ZodDefault<z.ZodNumber>;
+            temporal: z.ZodDefault<z.ZodNumber>;
         }, "strip", z.ZodTypeAny, {
             vector: number;
             keyword: number;
             graph: number;
             recency: number;
             salience: number;
+            temporal: number;
         }, {
             vector?: number | undefined;
             keyword?: number | undefined;
             graph?: number | undefined;
             recency?: number | undefined;
             salience?: number | undefined;
+            temporal?: number | undefined;
+        }>>;
+        domainSchema: z.ZodOptional<z.ZodObject<{
+            entityTypes: z.ZodDefault<z.ZodArray<z.ZodObject<{
+                name: z.ZodString;
+                description: z.ZodString;
+                fields: z.ZodDefault<z.ZodArray<z.ZodObject<{
+                    name: z.ZodString;
+                    type: z.ZodEnum<["string", "number", "boolean", "date"]>;
+                    description: z.ZodString;
+                    required: z.ZodDefault<z.ZodBoolean>;
+                }, "strip", z.ZodTypeAny, {
+                    name: string;
+                    type: "string" | "number" | "boolean" | "date";
+                    description: string;
+                    required: boolean;
+                }, {
+                    name: string;
+                    type: "string" | "number" | "boolean" | "date";
+                    description: string;
+                    required?: boolean | undefined;
+                }>, "many">>;
+            }, "strip", z.ZodTypeAny, {
+                name: string;
+                description: string;
+                fields: {
+                    name: string;
+                    type: "string" | "number" | "boolean" | "date";
+                    description: string;
+                    required: boolean;
+                }[];
+            }, {
+                name: string;
+                description: string;
+                fields?: {
+                    name: string;
+                    type: "string" | "number" | "boolean" | "date";
+                    description: string;
+                    required?: boolean | undefined;
+                }[] | undefined;
+            }>, "many">>;
+        }, "strip", z.ZodTypeAny, {
+            entityTypes: {
+                name: string;
+                description: string;
+                fields: {
+                    name: string;
+                    type: "string" | "number" | "boolean" | "date";
+                    description: string;
+                    required: boolean;
+                }[];
+            }[];
+        }, {
+            entityTypes?: {
+                name: string;
+                description: string;
+                fields?: {
+                    name: string;
+                    type: "string" | "number" | "boolean" | "date";
+                    description: string;
+                    required?: boolean | undefined;
+                }[] | undefined;
+            }[] | undefined;
         }>>;
     }, "strip", z.ZodTypeAny, {
         embeddingModel: string;
@@ -158,7 +340,20 @@ export declare const CreateTenantSchema: z.ZodObject<{
             graph: number;
             recency: number;
             salience: number;
+            temporal: number;
         };
+        domainSchema?: {
+            entityTypes: {
+                name: string;
+                description: string;
+                fields: {
+                    name: string;
+                    type: "string" | "number" | "boolean" | "date";
+                    description: string;
+                    required: boolean;
+                }[];
+            }[];
+        } | undefined;
     }, {
         embeddingModel?: string | undefined;
         embeddingDim?: number | undefined;
@@ -171,9 +366,24 @@ export declare const CreateTenantSchema: z.ZodObject<{
             graph?: number | undefined;
             recency?: number | undefined;
             salience?: number | undefined;
+            temporal?: number | undefined;
+        } | undefined;
+        domainSchema?: {
+            entityTypes?: {
+                name: string;
+                description: string;
+                fields?: {
+                    name: string;
+                    type: "string" | "number" | "boolean" | "date";
+                    description: string;
+                    required?: boolean | undefined;
+                }[] | undefined;
+            }[] | undefined;
         } | undefined;
     }>>;
 }, "strip", z.ZodTypeAny, {
+    name: string;
+    slug: string;
     config: {
         embeddingModel: string;
         embeddingDim: number;
@@ -186,10 +396,21 @@ export declare const CreateTenantSchema: z.ZodObject<{
             graph: number;
             recency: number;
             salience: number;
+            temporal: number;
         };
+        domainSchema?: {
+            entityTypes: {
+                name: string;
+                description: string;
+                fields: {
+                    name: string;
+                    type: "string" | "number" | "boolean" | "date";
+                    description: string;
+                    required: boolean;
+                }[];
+            }[];
+        } | undefined;
     };
-    name: string;
-    slug: string;
     plan: "free" | "pro" | "scale" | "enterprise";
 }, {
     name: string;
@@ -206,6 +427,19 @@ export declare const CreateTenantSchema: z.ZodObject<{
             graph?: number | undefined;
             recency?: number | undefined;
             salience?: number | undefined;
+            temporal?: number | undefined;
+        } | undefined;
+        domainSchema?: {
+            entityTypes?: {
+                name: string;
+                description: string;
+                fields?: {
+                    name: string;
+                    type: "string" | "number" | "boolean" | "date";
+                    description: string;
+                    required?: boolean | undefined;
+                }[] | undefined;
+            }[] | undefined;
         } | undefined;
     } | undefined;
     plan?: "free" | "pro" | "scale" | "enterprise" | undefined;

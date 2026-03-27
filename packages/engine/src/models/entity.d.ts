@@ -13,9 +13,9 @@ export declare const EntitySchema: z.ZodObject<{
     updatedAt: z.ZodDate;
 }, "strip", z.ZodTypeAny, {
     name: string;
-    id: string;
     embeddingModel: string | null;
     embeddingDim: number | null;
+    id: string;
     tenantId: string;
     createdAt: Date;
     entityType: string;
@@ -25,9 +25,9 @@ export declare const EntitySchema: z.ZodObject<{
     updatedAt: Date;
 }, {
     name: string;
-    id: string;
     embeddingModel: string | null;
     embeddingDim: number | null;
+    id: string;
     tenantId: string;
     createdAt: Date;
     entityType: string;

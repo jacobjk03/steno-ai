@@ -1,0 +1,137 @@
+const SCRATCHPAD_MAX_CHARS = 5000;
+const SCRATCHPAD_COMPRESSED_CHARS = 2500;
+/**
+ * Get or create a scratchpad for a scope.
+ * The scratchpad is stored as a special fact with tag 'scratchpad'.
+ */
+export async function getScratchpad(storage, tenantId, scope, scopeId) {
+    const facts = await storage.getFactsByScope(tenantId, scope, scopeId, { limit: 100 });
+    const scratchpadFact = facts.data.find(f => f.tags?.includes('scratchpad'));
+    return scratchpadFact?.content ?? '';
+}
+/**
+ * Update the scratchpad after an extraction.
+ * Appends new facts to the existing scratchpad, compresses if too long.
+ */
+export async function updateScratchpad(storage, llm, tenantId, scope, scopeId, newFacts) {
+    if (newFacts.length === 0)
+        return;
+    // Get existing scratchpad
+    const existing = await getScratchpad(storage, tenantId, scope, scopeId);
+    // Merge new facts into existing profile
+    const newSection = newFacts.join('\n');
+    let updated;
+    if (!existing) {
+        // First scratchpad — just use the new facts
+        updated = newSection;
+    }
+    else if (existing.length + newSection.length < SCRATCHPAD_MAX_CHARS) {
+        // Under limit — merge via LLM to keep it clean (not just append)
+        updated = await mergeScratchpad(llm, existing, newSection);
+    }
+    else {
+        // Over limit — compress everything together
+        updated = await compressScratchpad(llm, `${existing}\n\nNew facts to integrate:\n${newSection}`);
+    }
+    // Find existing scratchpad fact and invalidate it
+    const facts = await storage.getFactsByScope(tenantId, scope, scopeId, { limit: 200 });
+    const existingScratchpad = facts.data.find(f => f.tags?.includes('scratchpad'));
+    if (existingScratchpad) {
+        await storage.invalidateFact(tenantId, existingScratchpad.id);
+    }
+    // Create new scratchpad fact (no embedding needed — it's retrieved by tag, not vector search)
+    const id = crypto.randomUUID();
+    await storage.createFact({
+        id,
+        lineageId: existingScratchpad?.lineageId ?? crypto.randomUUID(),
+        tenantId,
+        scope,
+        scopeId,
+        content: updated,
+        embeddingModel: 'none',
+        embeddingDim: 1,
+        importance: 1.0,
+        confidence: 1.0,
+        operation: existingScratchpad ? 'update' : 'create',
+        sourceType: 'api',
+        modality: 'text',
+        tags: ['scratchpad'],
+        metadata: { type: 'scratchpad', updatedAt: new Date().toISOString() },
+        contradictionStatus: 'none',
+    });
+}
+/**
+ * Merge new facts into an existing scratchpad profile.
+ * Integrates new information cleanly without duplicating.
+ */
+async function mergeScratchpad(llm, existing, newFacts) {
+    const response = await llm.complete([
+        {
+            role: 'system',
+            content: `You maintain a structured user profile. Merge the new facts into the existing profile.
+
+Rules:
+- If a new fact UPDATES an existing one, replace the old version (e.g., "favorite color is now green" replaces "favorite color is blue")
+- If a new fact is already covered, skip it (no duplicates)
+- If a new fact is genuinely new, add it to the appropriate section
+- Keep the profile organized by category (identity, preferences, people, goals, events, etc.)
+- Keep it concise — under ${SCRATCHPAD_MAX_CHARS} characters
+- Output ONLY the merged profile, no explanation`
+        },
+        { role: 'user', content: `EXISTING PROFILE:\n${existing}\n\nNEW FACTS TO MERGE:\n${newFacts}` }
+    ], { temperature: 0 });
+    return response.content;
+}
+/**
+ * Compress the scratchpad using an LLM.
+ * Preserves the most important information while reducing size.
+ */
+export async function compressScratchpad(llm, content) {
+    const response = await llm.complete([
+        {
+            role: 'system',
+            content: `Compress the following user profile/scratchpad into a concise summary of ~${SCRATCHPAD_COMPRESSED_CHARS} characters.
+
+Preserve:
+- Names of people and their relationships
+- Key facts (job, location, health, allergies)
+- Strong preferences and personality traits
+- Important events with dates
+- Goals and future plans
+- Contradictions or changes in opinion
+
+Remove:
+- Duplicate information
+- Trivial details
+- Repetitive emotional expressions
+
+Output ONLY the compressed summary, no explanation.`
+        },
+        { role: 'user', content }
+    ], { temperature: 0 });
+    return response.content;
+}
+/**
+ * Get filtered scratchpad content relevant to a query.
+ */
+export async function getRelevantScratchpad(storage, llm, tenantId, scope, scopeId, query) {
+    const scratchpad = await getScratchpad(storage, tenantId, scope, scopeId);
+    if (!scratchpad || scratchpad.length < 50)
+        return '';
+    // If scratchpad is short, return all of it
+    if (scratchpad.length < 1000)
+        return scratchpad;
+    // Filter scratchpad for relevant content
+    const response = await llm.complete([
+        {
+            role: 'system',
+            content: 'Extract ONLY the parts of this user profile that are relevant to answering the given question. Return the relevant excerpts. If nothing is relevant, return empty string.'
+        },
+        {
+            role: 'user',
+            content: `Profile:\n${scratchpad}\n\nQuestion: ${query}`
+        }
+    ], { temperature: 0 });
+    return response.content;
+}
+//# sourceMappingURL=scratchpad.js.map

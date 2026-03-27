@@ -14,10 +14,10 @@ export declare const MemoryAccessSchema: z.ZodObject<{
     triggerId: z.ZodNullable<z.ZodString>;
     accessedAt: z.ZodDate;
 }, "strip", z.ZodTypeAny, {
-    query: string;
     id: string;
     tenantId: string;
     factId: string;
+    query: string;
     retrievalMethod: string;
     similarityScore: number | null;
     rankPosition: number | null;
@@ -28,10 +28,10 @@ export declare const MemoryAccessSchema: z.ZodObject<{
     triggerId: string | null;
     accessedAt: Date;
 }, {
-    query: string;
     id: string;
     tenantId: string;
     factId: string;
+    query: string;
     retrievalMethod: string;
     similarityScore: number | null;
     rankPosition: number | null;
@@ -52,17 +52,17 @@ export declare const CreateMemoryAccessSchema: z.ZodObject<{
     rankPosition: z.ZodOptional<z.ZodNumber>;
     triggerId: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
-    query: string;
     tenantId: string;
     factId: string;
+    query: string;
     retrievalMethod: string;
     similarityScore?: number | undefined;
     rankPosition?: number | undefined;
     triggerId?: string | undefined;
 }, {
-    query: string;
     tenantId: string;
     factId: string;
+    query: string;
     retrievalMethod: string;
     similarityScore?: number | undefined;
     rankPosition?: number | undefined;

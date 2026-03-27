@@ -26,9 +26,8 @@ export declare const TriggerSchema: z.ZodObject<{
     lastFiredAt: z.ZodNullable<z.ZodDate>;
     createdAt: z.ZodDate;
 }, "strip", z.ZodTypeAny, {
-    priority: number;
-    id: string;
     active: boolean;
+    id: string;
     tenantId: string;
     scope: "user" | "agent" | "session" | "hive";
     scopeId: string;
@@ -37,6 +36,7 @@ export declare const TriggerSchema: z.ZodObject<{
     factIds: string[];
     entityIds: string[];
     queryTemplate: string | null;
+    priority: number;
     timesFired: number;
     lastFiredAt: Date | null;
 }, {
@@ -50,8 +50,8 @@ export declare const TriggerSchema: z.ZodObject<{
     entityIds: string[];
     queryTemplate: string | null;
     lastFiredAt: Date | null;
-    priority?: number | undefined;
     active?: boolean | undefined;
+    priority?: number | undefined;
     timesFired?: number | undefined;
 }>;
 export type Trigger = z.infer<typeof TriggerSchema>;
@@ -65,23 +65,23 @@ export declare const CreateTriggerSchema: z.ZodObject<{
     queryTemplate: z.ZodOptional<z.ZodString>;
     priority: z.ZodDefault<z.ZodNumber>;
 }, "strip", z.ZodTypeAny, {
-    priority: number;
     tenantId: string;
     scope: "user" | "agent" | "session" | "hive";
     scopeId: string;
     condition: TriggerCondition;
     factIds: string[];
     entityIds: string[];
+    priority: number;
     queryTemplate?: string | undefined;
 }, {
     tenantId: string;
     scope: "user" | "agent" | "session" | "hive";
     scopeId: string;
     condition: TriggerCondition;
-    priority?: number | undefined;
     factIds?: string[] | undefined;
     entityIds?: string[] | undefined;
     queryTemplate?: string | undefined;
+    priority?: number | undefined;
 }>;
 export type CreateTrigger = z.infer<typeof CreateTriggerSchema>;
 //# sourceMappingURL=trigger.d.ts.map

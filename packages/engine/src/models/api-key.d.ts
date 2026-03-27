@@ -12,8 +12,8 @@ export declare const ApiKeySchema: z.ZodObject<{
     createdAt: z.ZodDate;
 }, "strip", z.ZodTypeAny, {
     name: string;
-    id: string;
     active: boolean;
+    id: string;
     tenantId: string;
     createdAt: Date;
     keyHash: string;
@@ -23,8 +23,8 @@ export declare const ApiKeySchema: z.ZodObject<{
     lastUsedAt: Date | null;
 }, {
     name: string;
-    id: string;
     active: boolean;
+    id: string;
     tenantId: string;
     createdAt: Date;
     keyHash: string;

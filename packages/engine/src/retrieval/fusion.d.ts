@@ -9,6 +9,7 @@ export interface FusionResult {
         graphScore: number;
         recencyScore: number;
         salienceScore: number;
+        temporalScore: number;
     };
     source: string;
     triggeredBy?: string;

@@ -14,6 +14,7 @@ import { extractWithLLM, normalizeEntityName } from './llm-extractor.js';
 import { deduplicateFacts } from './dedup.js';
 import { processContradictions } from './contradiction.js';
 import { buildEntityIdMap, persistEdges } from './entity-extractor.js';
+import { linkRelatedFacts } from './cross-linker.js';
 import { hashInput } from './hasher.js';
 import { updateScratchpad } from '../scratchpad/scratchpad.js';
 
@@ -223,6 +224,9 @@ async function executeExtraction(
   // Collect the first persisted factId to anchor edges (edges reference a fact).
   let firstFactId: string | undefined;
 
+  // Track all created fact IDs for cross-linking
+  const createdFactIds: string[] = [];
+
   // ── BATCH EMBED all extracted facts at once (1 API call instead of N) ──
   const factsToEmbed = contradictionResults.filter(r => r.fact.operation !== 'noop');
   const factTexts = factsToEmbed.map(r => r.fact.contextualContent ?? r.fact.content);
@@ -288,13 +292,13 @@ async function executeExtraction(
     // Updates create new versions with same lineageId. Recency scoring
     // naturally prefers newer versions. Old versions remain searchable
     // for temporal reasoning ("what was my old X?").
+    createdFactIds.push(factId);
+
     if (fact.operation === 'update') {
       factsUpdated++;
-      // No invalidation — old fact stays visible with valid_until = NULL
     } else if (fact.operation === 'invalidate') {
       factsInvalidated++;
     } else {
-      // 'add', 'contradict', undefined → new fact created
       factsCreated++;
     }
 
@@ -324,9 +328,15 @@ async function executeExtraction(
     }
   }
 
-  // Raw chunk storage removed — raw chunks diluted search results and the compound
-  // search SQL already excludes raw_chunk tagged facts. Extracted atomic facts are
-  // sufficient for retrieval quality.
+  // Cross-link new facts to existing related facts via shared entities + keyword overlap
+  if (createdFactIds.length > 0) {
+    try {
+      const crossLinked = await linkRelatedFacts(config.storage, input.tenantId, createdFactIds, entityIdMap);
+      edgesCreated += crossLinked;
+    } catch (err) {
+      console.error('[steno] Cross-linking failed:', err instanceof Error ? err.message : err);
+    }
+  }
 
   // Create edges ONCE after all facts are persisted.
   console.error(`[steno] Edge creation: ${mergedEdges.length} edges to persist, firstFactId=${firstFactId ? 'set' : 'MISSING'}`);

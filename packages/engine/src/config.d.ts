@@ -1,5 +1,124 @@
 import { z } from 'zod';
 export declare const unitFloat: z.ZodNumber;
+export declare const EntityFieldSchema: z.ZodObject<{
+    name: z.ZodString;
+    type: z.ZodEnum<["string", "number", "boolean", "date"]>;
+    description: z.ZodString;
+    required: z.ZodDefault<z.ZodBoolean>;
+}, "strip", z.ZodTypeAny, {
+    name: string;
+    type: "string" | "number" | "boolean" | "date";
+    description: string;
+    required: boolean;
+}, {
+    name: string;
+    type: "string" | "number" | "boolean" | "date";
+    description: string;
+    required?: boolean | undefined;
+}>;
+export type EntityField = z.infer<typeof EntityFieldSchema>;
+export declare const DomainEntityTypeSchema: z.ZodObject<{
+    name: z.ZodString;
+    description: z.ZodString;
+    fields: z.ZodDefault<z.ZodArray<z.ZodObject<{
+        name: z.ZodString;
+        type: z.ZodEnum<["string", "number", "boolean", "date"]>;
+        description: z.ZodString;
+        required: z.ZodDefault<z.ZodBoolean>;
+    }, "strip", z.ZodTypeAny, {
+        name: string;
+        type: "string" | "number" | "boolean" | "date";
+        description: string;
+        required: boolean;
+    }, {
+        name: string;
+        type: "string" | "number" | "boolean" | "date";
+        description: string;
+        required?: boolean | undefined;
+    }>, "many">>;
+}, "strip", z.ZodTypeAny, {
+    name: string;
+    description: string;
+    fields: {
+        name: string;
+        type: "string" | "number" | "boolean" | "date";
+        description: string;
+        required: boolean;
+    }[];
+}, {
+    name: string;
+    description: string;
+    fields?: {
+        name: string;
+        type: "string" | "number" | "boolean" | "date";
+        description: string;
+        required?: boolean | undefined;
+    }[] | undefined;
+}>;
+export type DomainEntityType = z.infer<typeof DomainEntityTypeSchema>;
+export declare const DomainSchemaSchema: z.ZodObject<{
+    entityTypes: z.ZodDefault<z.ZodArray<z.ZodObject<{
+        name: z.ZodString;
+        description: z.ZodString;
+        fields: z.ZodDefault<z.ZodArray<z.ZodObject<{
+            name: z.ZodString;
+            type: z.ZodEnum<["string", "number", "boolean", "date"]>;
+            description: z.ZodString;
+            required: z.ZodDefault<z.ZodBoolean>;
+        }, "strip", z.ZodTypeAny, {
+            name: string;
+            type: "string" | "number" | "boolean" | "date";
+            description: string;
+            required: boolean;
+        }, {
+            name: string;
+            type: "string" | "number" | "boolean" | "date";
+            description: string;
+            required?: boolean | undefined;
+        }>, "many">>;
+    }, "strip", z.ZodTypeAny, {
+        name: string;
+        description: string;
+        fields: {
+            name: string;
+            type: "string" | "number" | "boolean" | "date";
+            description: string;
+            required: boolean;
+        }[];
+    }, {
+        name: string;
+        description: string;
+        fields?: {
+            name: string;
+            type: "string" | "number" | "boolean" | "date";
+            description: string;
+            required?: boolean | undefined;
+        }[] | undefined;
+    }>, "many">>;
+}, "strip", z.ZodTypeAny, {
+    entityTypes: {
+        name: string;
+        description: string;
+        fields: {
+            name: string;
+            type: "string" | "number" | "boolean" | "date";
+            description: string;
+            required: boolean;
+        }[];
+    }[];
+}, {
+    entityTypes?: {
+        name: string;
+        description: string;
+        fields?: {
+            name: string;
+            type: "string" | "number" | "boolean" | "date";
+            description: string;
+            required?: boolean | undefined;
+        }[] | undefined;
+    }[] | undefined;
+}>;
+export type DomainSchema = z.infer<typeof DomainSchemaSchema>;
 export declare const StenoConfigSchema: z.ZodObject<{
     embeddingModel: z.ZodDefault<z.ZodString>;
     embeddingDim: z.ZodDefault<z.ZodNumber>;
@@ -12,18 +131,83 @@ export declare const StenoConfigSchema: z.ZodObject<{
         graph: z.ZodDefault<z.ZodNumber>;
         recency: z.ZodDefault<z.ZodNumber>;
         salience: z.ZodDefault<z.ZodNumber>;
+        temporal: z.ZodDefault<z.ZodNumber>;
     }, "strip", z.ZodTypeAny, {
         vector: number;
         keyword: number;
         graph: number;
         recency: number;
         salience: number;
+        temporal: number;
     }, {
         vector?: number | undefined;
         keyword?: number | undefined;
         graph?: number | undefined;
         recency?: number | undefined;
         salience?: number | undefined;
+        temporal?: number | undefined;
+    }>>;
+    domainSchema: z.ZodOptional<z.ZodObject<{
+        entityTypes: z.ZodDefault<z.ZodArray<z.ZodObject<{
+            name: z.ZodString;
+            description: z.ZodString;
+            fields: z.ZodDefault<z.ZodArray<z.ZodObject<{
+                name: z.ZodString;
+                type: z.ZodEnum<["string", "number", "boolean", "date"]>;
+                description: z.ZodString;
+                required: z.ZodDefault<z.ZodBoolean>;
+            }, "strip", z.ZodTypeAny, {
+                name: string;
+                type: "string" | "number" | "boolean" | "date";
+                description: string;
+                required: boolean;
+            }, {
+                name: string;
+                type: "string" | "number" | "boolean" | "date";
+                description: string;
+                required?: boolean | undefined;
+            }>, "many">>;
+        }, "strip", z.ZodTypeAny, {
+            name: string;
+            description: string;
+            fields: {
+                name: string;
+                type: "string" | "number" | "boolean" | "date";
+                description: string;
+                required: boolean;
+            }[];
+        }, {
+            name: string;
+            description: string;
+            fields?: {
+                name: string;
+                type: "string" | "number" | "boolean" | "date";
+                description: string;
+                required?: boolean | undefined;
+            }[] | undefined;
+        }>, "many">>;
+    }, "strip", z.ZodTypeAny, {
+        entityTypes: {
+            name: string;
+            description: string;
+            fields: {
+                name: string;
+                type: "string" | "number" | "boolean" | "date";
+                description: string;
+                required: boolean;
+            }[];
+        }[];
+    }, {
+        entityTypes?: {
+            name: string;
+            description: string;
+            fields?: {
+                name: string;
+                type: "string" | "number" | "boolean" | "date";
+                description: string;
+                required?: boolean | undefined;
+            }[] | undefined;
+        }[] | undefined;
     }>>;
 }, "strip", z.ZodTypeAny, {
     embeddingModel: string;
@@ -37,7 +221,20 @@ export declare const StenoConfigSchema: z.ZodObject<{
         graph: number;
         recency: number;
         salience: number;
+        temporal: number;
     };
+    domainSchema?: {
+        entityTypes: {
+            name: string;
+            description: string;
+            fields: {
+                name: string;
+                type: "string" | "number" | "boolean" | "date";
+                description: string;
+                required: boolean;
+            }[];
+        }[];
+    } | undefined;
 }, {
     embeddingModel?: string | undefined;
     embeddingDim?: number | undefined;
@@ -50,6 +247,19 @@ export declare const StenoConfigSchema: z.ZodObject<{
         graph?: number | undefined;
         recency?: number | undefined;
         salience?: number | undefined;
+        temporal?: number | undefined;
+    } | undefined;
+    domainSchema?: {
+        entityTypes?: {
+            name: string;
+            description: string;
+            fields?: {
+                name: string;
+                type: "string" | "number" | "boolean" | "date";
+                description: string;
+                required?: boolean | undefined;
+            }[] | undefined;
+        }[] | undefined;
     } | undefined;
 }>;
 export type StenoConfig = z.infer<typeof StenoConfigSchema>;
@@ -69,7 +279,7 @@ export declare const EXTRACTION_TIERS_USED: readonly ["heuristic", "cheap_llm", 
 export type ExtractionTierUsed = (typeof EXTRACTION_TIERS_USED)[number];
 export declare const MODALITIES: readonly ["text", "image", "audio", "code", "document"];
 export type Modality = (typeof MODALITIES)[number];
-export declare const EDGE_TYPES: readonly ["associative", "causal", "temporal", "contradictory", "hierarchical"];
+export declare const EDGE_TYPES: readonly ["associative", "causal", "temporal", "contradictory", "hierarchical", "updates", "extends", "derives"];
 export type EdgeType = (typeof EDGE_TYPES)[number];
 export declare const EXTRACTION_STATUSES: readonly ["queued", "processing", "completed", "failed", "deduped"];
 export type ExtractionStatus = (typeof EXTRACTION_STATUSES)[number];
