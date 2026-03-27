@@ -291,24 +291,82 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
         return { content: [{ type: 'text' as const, text: 'No memories found.' }] };
       }
 
-      const text = results.results
-        .map((r) => {
-          const dateParts: string[] = [];
-          if (r.fact.eventDate) dateParts.push(`event: ${new Date(r.fact.eventDate).toISOString().slice(0, 10)}`);
-          if (r.fact.documentDate) dateParts.push(`doc: ${new Date(r.fact.documentDate).toISOString().slice(0, 10)}`);
-          const dateStr = dateParts.length > 0 ? `, ${dateParts.join(', ')}` : '';
-          const signals = Object.entries(r.signals)
-            .filter(([, v]) => v > 0)
-            .map(([k, v]) => `${k.replace('Score', '')}=${(v as number).toFixed(2)}`)
-            .join(', ');
-          let line = `[Memory] ${r.fact.content} (score: ${r.score.toFixed(2)}${dateStr}${signals ? `, ${signals}` : ''})`;
-          if (r.fact.sourceChunk) {
-            line += `\n[Source Context] ${r.fact.sourceChunk}`;
+      // Build dependency map from edges (ONE query, not per-fact)
+      const factIds = results.results.map(r => r.fact.id);
+      const depMap = new Map<string, { blocks: string[]; blockedBy: string[]; deadlines: string[] }>();
+
+      try {
+        // Query ALL dependency edges for the steno entity (they reference fact IDs in metadata)
+        const stenoEntities = await config.storage.getEntitiesForTenant(config.tenantId, { limit: 5 });
+        for (const entity of stenoEntities.data) {
+          const edges = await config.storage.getEdgesForEntity(config.tenantId, entity.id);
+          for (const edge of edges) {
+            if (!['precedes', 'depends_on', 'deadline'].includes(edge.relation)) continue;
+            const edgeMeta = edge.metadata as Record<string, unknown> | undefined;
+            const sourceFactId = edgeMeta?.sourceFactId as string | undefined;
+            const targetFactId = edgeMeta?.targetFactId as string | undefined;
+
+            if (edge.relation === 'precedes' && sourceFactId && targetFactId) {
+              if (!depMap.has(sourceFactId)) depMap.set(sourceFactId, { blocks: [], blockedBy: [], deadlines: [] });
+              // Find target fact content
+              const target = results.results.find(x => x.fact.id === targetFactId);
+              if (target) depMap.get(sourceFactId)!.blocks.push(target.fact.content.slice(0, 60));
+            }
+            if (edge.relation === 'depends_on' && sourceFactId && targetFactId) {
+              if (!depMap.has(sourceFactId)) depMap.set(sourceFactId, { blocks: [], blockedBy: [], deadlines: [] });
+              const dep = results.results.find(x => x.fact.id === targetFactId);
+              if (dep) depMap.get(sourceFactId)!.blockedBy.push(dep.fact.content.slice(0, 60));
+            }
+            if (edge.relation === 'deadline' && edge.factId) {
+              if (!depMap.has(edge.factId)) depMap.set(edge.factId, { blocks: [], blockedBy: [], deadlines: [] });
+              const deadline = edgeMeta?.deadline as string | undefined;
+              if (deadline) depMap.get(edge.factId)!.deadlines.push(deadline);
+            }
           }
-          line += '\n---';
-          return line;
-        })
-        .join('\n');
+        }
+      } catch { /* edge lookup failed */ }
+
+      const enrichedLines: string[] = [];
+      for (const r of results.results) {
+        const meta = r.fact.metadata as Record<string, unknown> | undefined;
+        const status = meta?.status as string | undefined;
+        const priorityOrder = meta?.priority_order as number | undefined;
+        const deps = depMap.get(r.fact.id);
+
+        const dateParts: string[] = [];
+        if (r.fact.eventDate) dateParts.push(`event: ${new Date(r.fact.eventDate).toISOString().slice(0, 10)}`);
+        if (r.fact.documentDate) dateParts.push(`doc: ${new Date(r.fact.documentDate).toISOString().slice(0, 10)}`);
+        const dateStr = dateParts.length > 0 ? `, ${dateParts.join(', ')}` : '';
+        const signals = Object.entries(r.signals)
+          .filter(([, v]) => v > 0)
+          .map(([k, v]) => `${k.replace('Score', '')}=${(v as number).toFixed(2)}`)
+          .join(', ');
+
+        // Format with dependency context
+        const isPriority = status || priorityOrder;
+        const blocks = deps?.blocks ?? [];
+        const blockedBy = deps?.blockedBy ?? [];
+        const deadlines = deps?.deadlines ?? [];
+        let line: string;
+        if (isPriority) {
+          line = `[Priority${priorityOrder ? ` #${priorityOrder}` : ''}] ${r.fact.content}`;
+          line += `\n  status: ${status || 'unknown'}`;
+          if (blocks.length > 0) line += `\n  blocks: → ${blocks.join(', ')}`;
+          if (blockedBy.length > 0) line += `\n  blocked_by: ← ${blockedBy.join(', ')}`;
+          else if (status === 'not_started') line += `\n  blocked_by: none`;
+          if (deadlines.length > 0) line += `\n  deadline: ${deadlines.join(', ')}`;
+          line += `\n  (score: ${r.score.toFixed(2)}${dateStr})`;
+        } else {
+          line = `[Memory] ${r.fact.content} (score: ${r.score.toFixed(2)}${dateStr}${signals ? `, ${signals}` : ''})`;
+        }
+        if (r.fact.sourceChunk && !isPriority) {
+          line += `\n[Source Context] ${r.fact.sourceChunk}`;
+        }
+        line += '\n---';
+        enrichedLines.push(line);
+      }
+
+      const text = enrichedLines.join('\n');
 
       return {
         content: [
