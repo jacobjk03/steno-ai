@@ -86,9 +86,12 @@ export const EDGE_TYPES = [
   'temporal',
   'contradictory',
   'hierarchical',
-  'updates',    // new fact supersedes old one (knowledge chain)
-  'extends',    // new fact adds detail to old one
-  'derives',    // new fact is inferred from combining others
+  'updates',
+  'extends',
+  'derives',
+  'precedes',     // A must happen before B (ordering)
+  'depends_on',   // A requires B to be done first (blocking dependency)
+  'deadline',     // A must be done before deadline D
 ] as const;
 export type EdgeType = (typeof EDGE_TYPES)[number];
 

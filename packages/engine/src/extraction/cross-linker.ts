@@ -147,15 +147,18 @@ export async function linkRelatedFacts(
         {
           role: 'system',
           content: `Classify the relationship between each pair of facts. For each pair, output:
-- relation: one of "part_of", "has_child", "extends", "derives", "relates_to"
+- relation: one of "part_of", "has_child", "extends", "derives", "precedes", "depends_on", "deadline", "relates_to"
 - direction: "forward" (NEW → EXISTING) or "reverse" (EXISTING → NEW)
 
 Relationship meanings:
-- part_of: the NEW fact is a component/subtask/member of the EXISTING fact (forward: NEW part_of EXISTING)
-- has_child: the NEW fact is a parent/container of the EXISTING fact (forward: NEW has_child EXISTING)
-- extends: the NEW fact adds detail to the EXISTING fact without contradicting it
-- derives: the NEW fact is inferred from or builds upon the EXISTING fact
-- relates_to: loosely related but no clear hierarchy
+- part_of: the NEW fact is a component/subtask/member of the EXISTING fact
+- has_child: the NEW fact is a parent/container of the EXISTING fact
+- extends: the NEW fact adds detail to the EXISTING fact
+- derives: the NEW fact is inferred from the EXISTING fact
+- precedes: the NEW fact should happen BEFORE the EXISTING fact (ordering)
+- depends_on: the NEW fact REQUIRES the EXISTING fact to be done first (blocking)
+- deadline: the NEW fact must be completed before the EXISTING fact (time constraint)
+- relates_to: loosely related but no clear hierarchy or dependency
 
 Return ONLY a JSON array: [{"index": 0, "relation": "part_of", "direction": "forward"}, ...]`
         },
@@ -186,12 +189,16 @@ Return ONLY a JSON array: [{"index": 0, "relation": "part_of", "direction": "for
     const candidate = uniqueCandidates[cls.index];
     if (!candidate) continue;
 
-    const validRelations = ['part_of', 'has_child', 'extends', 'derives', 'relates_to'];
+    const validRelations = ['part_of', 'has_child', 'extends', 'derives', 'precedes', 'depends_on', 'deadline', 'relates_to'];
     const relation = validRelations.includes(cls.relation) ? cls.relation : 'relates_to';
 
     // Map relation to edge type
     const edgeType = relation === 'extends' ? 'extends' as const
       : relation === 'derives' ? 'derives' as const
+      : relation === 'precedes' ? 'precedes' as const
+      : relation === 'depends_on' ? 'depends_on' as const
+      : relation === 'deadline' ? 'deadline' as const
+      : relation === 'part_of' || relation === 'has_child' ? 'hierarchical' as const
       : 'associative' as const;
 
     // Determine source/target based on direction
