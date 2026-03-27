@@ -69,10 +69,21 @@ export async function linkRelatedFacts(
   entityIdMap: Map<string, string>,
   llm?: LLMAdapter,
 ): Promise<number> {
-  if (newFactIds.length === 0 || entityIdMap.size === 0) return 0;
+  const mapSize = entityIdMap instanceof Map ? entityIdMap.size : Object.keys(entityIdMap).length;
+  if (newFactIds.length === 0 || mapSize === 0) return 0;
 
-  const newFacts = await storage.getFactsByIds(tenantId, newFactIds);
-  if (newFacts.length === 0) return 0;
+  // Normalize entityIdMap to array of entries (handle both Map and plain object)
+  const entityEntries: Array<[string, string]> = entityIdMap instanceof Map
+    ? Array.from(entityIdMap.entries())
+    : Object.entries(entityIdMap) as Array<[string, string]>;
+
+  let newFacts: any[];
+  try {
+    newFacts = await storage.getFactsByIds(tenantId, newFactIds);
+  } catch {
+    return 0;
+  }
+  if (!newFacts || newFacts.length === 0) return 0;
 
   const newFactKeywords = new Map<string, Set<string>>();
   for (const f of newFacts) {
@@ -83,7 +94,7 @@ export async function linkRelatedFacts(
   const candidates: CandidatePair[] = [];
   const newFactSet = new Set(newFactIds);
 
-  for (const [canonicalName, entityId] of entityIdMap) {
+  for (const [canonicalName, entityId] of entityEntries) {
     if (GENERIC_ENTITIES.has(canonicalName)) continue;
 
     try {
@@ -151,7 +162,14 @@ Return ONLY a JSON array: [{"index": 0, "relation": "part_of", "direction": "for
         { role: 'user', content: pairsText }
       ], { temperature: 0, responseFormat: 'json' });
 
-      classifications = JSON.parse(response.content) as typeof classifications;
+      const parsed = JSON.parse(response.content);
+      // LLM might return array directly or wrapped: {"classifications": [...]} or {"results": [...]}
+      const arr = Array.isArray(parsed) ? parsed
+        : Array.isArray(parsed?.classifications) ? parsed.classifications
+        : Array.isArray(parsed?.results) ? parsed.results
+        : Array.isArray(parsed?.edges) ? parsed.edges
+        : null;
+      classifications = arr ?? uniqueCandidates.map((_, i) => ({ index: i, relation: 'relates_to', direction: 'forward' as const }));
     } catch {
       // LLM failed — fall back to heuristic relates_to
       classifications = uniqueCandidates.map((_, i) => ({ index: i, relation: 'relates_to', direction: 'forward' as const }));
