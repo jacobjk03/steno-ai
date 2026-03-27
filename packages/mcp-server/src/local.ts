@@ -95,6 +95,9 @@ async function main(): Promise<void> {
     scopeId,
     embeddingModel,
     embeddingDim,
+    sessionTimeoutMs: process.env.STENO_SESSION_TIMEOUT_MS
+      ? parseInt(process.env.STENO_SESSION_TIMEOUT_MS, 10)
+      : undefined,
     domainEntityTypes: [
       {
         name: 'vehicle',

@@ -16,20 +16,21 @@ export interface LocalServerConfig {
   embeddingModel: string;
   embeddingDim: number;
   domainEntityTypes?: import('@steno-ai/engine').DomainEntityType[];
+  sessionTimeoutMs?: number;
 }
 
 // ---------------------------------------------------------------------------
 // Session buffer types
 // ---------------------------------------------------------------------------
-interface SessionBuffer {
+interface ActiveSession {
   sessionId: string;
-  messages: string[];
-  lastActivity: Date;
+  pendingCount: number;
   flushTimer: ReturnType<typeof setTimeout> | null;
 }
 
 const FLUSH_DELAY_MS = 30_000; // 30 seconds of inactivity triggers flush
 const MAX_BUFFER_SIZE = 5;     // flush after 5 messages
+const DEFAULT_SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 // In-memory embedding cache — survives across tool calls within the same MCP session
 let _embeddingCache: Map<string, { embedding: number[]; ts: number }> | null = null;
@@ -70,14 +71,15 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
   const server = new McpServer({
     name: 'steno-local',
     version: '0.1.0',
-    instructions: `You have access to the user's persistent long-term memory via Steno.
+    ...({ instructions: `You have access to the user's persistent long-term memory via Steno.
 
 CRITICAL RULES:
 1. ALWAYS call steno_recall BEFORE answering ANY question about the user, their life, work, projects, people they know, preferences, past events, companies, or decisions.
 2. When the user shares personal information, call steno_remember to store it, then ALWAYS call steno_flush immediately after to ensure extraction happens now.
 3. Before context compaction or session end, call steno_remember with a summary of key decisions and progress, then steno_flush.
 4. Never say "I don't have information about that" without first checking steno_recall.
-5. Steno memory persists across ALL conversations — it knows things from past sessions that your conversation history does not.`,
+5. Steno memory persists across ALL conversations — it knows things from past sessions that your conversation history does not.
+6. Use steno_update_status to change priority/roadmap item status when the user starts, completes, or gets blocked on a task.` } as any),
   });
 
   // Lazy import to avoid loading heavy modules at startup
@@ -109,35 +111,53 @@ CRITICAL RULES:
     return _getOrCreateActiveSession;
   }
 
+  let _endSession: typeof import('@steno-ai/engine').endSession | null = null;
+
+  async function getEndSession() {
+    if (!_endSession) {
+      const mod = await import('@steno-ai/engine');
+      _endSession = mod.endSession;
+    }
+    return _endSession;
+  }
+
   // ---------------------------------------------------------------------------
-  // Session buffer — accumulate messages, flush periodically
+  // Active sessions — track pending message counts, flush periodically
   // ---------------------------------------------------------------------------
-  const sessionBuffers = new Map<string, SessionBuffer>();
+  const activeSessions = new Map<string, ActiveSession>();
 
   /** Build a buffer key from scope parameters */
   function bufferKey(): string {
     return `${config.tenantId}:${config.scope}:${config.scopeId}`;
   }
 
-  /** Flush the session buffer: run extraction pipeline on all accumulated messages */
-  async function flushBuffer(key: string): Promise<void> {
-    const buf = sessionBuffers.get(key);
-    if (!buf || buf.messages.length === 0) return;
+  /** Flush the session: read unextracted messages from DB, run extraction pipeline */
+  async function flushSession(key: string): Promise<void> {
+    const active = activeSessions.get(key);
+    if (!active) return;
 
-    // Grab and clear the buffer immediately so new messages start a fresh batch
-    const messages = [...buf.messages];
-    const sessionId = buf.sessionId;
-    buf.messages = [];
-    if (buf.flushTimer) {
-      clearTimeout(buf.flushTimer);
-      buf.flushTimer = null;
+    if (active.flushTimer) {
+      clearTimeout(active.flushTimer);
+      active.flushTimer = null;
     }
 
-    const fullText = messages.join('\n---\n');
-
-    console.error(`[steno] Flushing session buffer: ${messages.length} messages, sessionId=${sessionId}`);
-
     try {
+      const messages = await config.storage.getSessionMessages(
+        config.tenantId, active.sessionId, { unextractedOnly: true },
+      );
+      if (messages.length === 0) {
+        active.pendingCount = 0;
+        return;
+      }
+
+      const conversationLines = messages.map(m => {
+        const time = m.createdAt.toISOString().replace('T', ' ').slice(0, 19);
+        return `[${m.role} @ ${time}]: ${m.content}`;
+      });
+      const formattedText = conversationLines.join('\n\n');
+
+      console.error(`[steno] Flushing session: ${messages.length} messages, sessionId=${active.sessionId}`);
+
       const runPipeline = await getPipeline();
       const result = await runPipeline(
         {
@@ -153,37 +173,43 @@ CRITICAL RULES:
           tenantId: config.tenantId,
           scope: config.scope,
           scopeId: config.scopeId,
-          sessionId,
-          inputType: 'raw_text',
-          data: fullText,
+          sessionId: active.sessionId,
+          inputType: 'conversation',
+          data: formattedText,
         },
       );
+
+      await config.storage.markMessagesExtracted(
+        messages.map(m => m.id),
+        result.extractionId,
+      );
+      active.pendingCount = 0;
+
       console.error(`[steno] Session flush done: ${result.factsCreated} facts, ${result.entitiesCreated} entities, ${result.edgesCreated} edges`);
     } catch (err: any) {
-      console.error('[steno] Session flush pipeline error:', err?.message ?? err);
+      // pendingCount intentionally NOT reset on error — next scheduleFlush will retry
+      // markMessagesExtracted was not called, so messages remain unextracted in DB
+      console.error('[steno] Session flush error:', err?.message ?? err);
     }
   }
 
   /** Schedule a flush after the inactivity delay, or flush immediately if buffer is full */
   function scheduleFlush(key: string): void {
-    const buf = sessionBuffers.get(key);
-    if (!buf) return;
+    const active = activeSessions.get(key);
+    if (!active) return;
 
-    // Clear any existing timer
-    if (buf.flushTimer) {
-      clearTimeout(buf.flushTimer);
-      buf.flushTimer = null;
+    if (active.flushTimer) {
+      clearTimeout(active.flushTimer);
+      active.flushTimer = null;
     }
 
-    // Flush immediately if buffer is full
-    if (buf.messages.length >= MAX_BUFFER_SIZE) {
-      void flushBuffer(key);
+    if (active.pendingCount >= MAX_BUFFER_SIZE) {
+      void flushSession(key);
       return;
     }
 
-    // Otherwise schedule a delayed flush
-    buf.flushTimer = setTimeout(() => {
-      void flushBuffer(key);
+    active.flushTimer = setTimeout(() => {
+      void flushSession(key);
     }, FLUSH_DELAY_MS);
   }
 
@@ -201,19 +227,38 @@ CRITICAL RULES:
         return { content: [{ type: 'text' as const, text: 'Error: provide content or text' }] };
       }
 
-      // ── Session-based buffering ──
-      // Accumulate messages within a session. Extraction runs when the buffer
-      // is full (MAX_BUFFER_SIZE) or after an inactivity timeout (FLUSH_DELAY_MS).
       const key = bufferKey();
-      let buf = sessionBuffers.get(key);
+      const sessionTimeout = config.sessionTimeoutMs ?? DEFAULT_SESSION_TIMEOUT_MS;
+      let active = activeSessions.get(key);
 
-      if (!buf) {
-        // Start or resume a session
+      // Check if existing session is stale
+      if (active) {
+        try {
+          const messages = await config.storage.getSessionMessages(
+            config.tenantId, active.sessionId, {},
+          );
+          if (messages.length > 0) {
+            const lastMsg = messages[messages.length - 1]!;
+            if (Date.now() - lastMsg.createdAt.getTime() > sessionTimeout) {
+              console.error(`[steno] Session ${active.sessionId.slice(0, 8)} stale (${Math.round((Date.now() - lastMsg.createdAt.getTime()) / 60000)}min), ending`);
+              try {
+                const endSessionFn = await getEndSession();
+                await endSessionFn(config.storage, config.cheapLLM, config.tenantId, active.sessionId);
+              } catch (endErr: any) {
+                console.error('[steno] Failed to end stale session:', endErr?.message ?? endErr);
+              }
+              activeSessions.delete(key);
+              active = undefined;
+            }
+          }
+        } catch { /* continue with existing session */ }
+      }
+
+      // Get or create session
+      if (!active) {
         let sessionId: string;
         try {
           const getOrCreate = await getSessionManager();
-          // SessionScope excludes 'session', but config.scope might be 'session'.
-          // Treat 'session' scope as 'user' for session tracking purposes.
           const sessionScope = config.scope === 'session' ? 'user' : config.scope;
           const session = await getOrCreate(config.storage, config.tenantId, sessionScope as any, config.scopeId);
           sessionId = session.id;
@@ -222,28 +267,38 @@ CRITICAL RULES:
           sessionId = crypto.randomUUID();
         }
 
-        buf = {
-          sessionId,
-          messages: [],
-          lastActivity: new Date(),
-          flushTimer: null,
-        };
-        sessionBuffers.set(key, buf);
+        active = { sessionId, pendingCount: 0, flushTimer: null };
+        activeSessions.set(key, active);
       }
 
-      // Buffer the message
-      buf.messages.push(memoryText);
-      buf.lastActivity = new Date();
+      // Store message in DB (durable)
+      try {
+        const messages = await config.storage.getSessionMessages(
+          config.tenantId, active.sessionId, {},
+        );
+        const turnNumber = messages.length;
 
-      // ALL messages go through the full pipeline via session buffer (no fast path).
-      // Full pipeline gives us: LLM extraction, entity/edge creation,
-      // contextual embeddings, temporal grounding, dedup — everything.
-      // Returns immediately — extraction happens in the background when flushed.
+        await config.storage.addSessionMessage({
+          id: crypto.randomUUID(),
+          sessionId: active.sessionId,
+          tenantId: config.tenantId,
+          role: 'user',
+          content: memoryText,
+          turnNumber,
+        });
+        active.pendingCount++;
+      } catch (err: any) {
+        console.error('[steno] Failed to store session message:', err?.message ?? err);
+        return { content: [{ type: 'text' as const, text: `Error storing message: ${err?.message}` }] };
+      }
+
       scheduleFlush(key);
 
-      const pending = buf.messages.length;
       return {
-        content: [{ type: 'text' as const, text: `Buffered (${pending}/${MAX_BUFFER_SIZE} messages in session). Extraction runs on flush.` }],
+        content: [{
+          type: 'text' as const,
+          text: `Stored in session ${active.sessionId.slice(0, 8)} (${active.pendingCount}/${MAX_BUFFER_SIZE} pending). Extraction runs on flush.`,
+        }],
       };
     },
   );
@@ -255,15 +310,50 @@ CRITICAL RULES:
     {},
     async () => {
       const key = bufferKey();
-      const buf = sessionBuffers.get(key);
-      if (!buf || buf.messages.length === 0) {
+      const active = activeSessions.get(key);
+      if (!active || active.pendingCount === 0) {
         return { content: [{ type: 'text' as const, text: 'No buffered messages to flush.' }] };
       }
-      const count = buf.messages.length;
-      await flushBuffer(key);
+      const count = active.pendingCount;
+      await flushSession(key);
       return {
         content: [{ type: 'text' as const, text: `Flushed ${count} buffered messages. Extraction complete.` }],
       };
+    },
+  );
+
+  // ─── END SESSION ───
+  server.tool(
+    'steno_end_session',
+    'Explicitly end the current session. Flushes pending messages, generates a session summary, and starts a fresh session on next remember. Use before long breaks or when switching topics.',
+    {},
+    async () => {
+      const key = bufferKey();
+      const active = activeSessions.get(key);
+      if (!active) {
+        return { content: [{ type: 'text' as const, text: 'No active session.' }] };
+      }
+
+      if (active.pendingCount > 0) {
+        await flushSession(key);
+      }
+
+      try {
+        const endSessionFn = await getEndSession();
+        const ended = await endSessionFn(config.storage, config.cheapLLM, config.tenantId, active.sessionId);
+        activeSessions.delete(key);
+
+        const summary = ended.summary || 'No summary generated.';
+        const topics = ended.topics?.join(', ') || 'none';
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `Session ended.\nSummary: ${summary}\nTopics: ${topics}`,
+          }],
+        };
+      } catch (err: any) {
+        return { content: [{ type: 'text' as const, text: `Error ending session: ${err?.message ?? err}` }] };
+      }
     },
   );
 
@@ -278,9 +368,9 @@ CRITICAL RULES:
     async ({ query, limit }) => {
       // Auto-flush any pending buffered messages before searching
       const key = bufferKey();
-      const buf = sessionBuffers.get(key);
-      if (buf && buf.messages.length > 0) {
-        await flushBuffer(key);
+      const active = activeSessions.get(key);
+      if (active && active.pendingCount > 0) {
+        await flushSession(key);
       }
 
       const searchFn = await getSearch();
@@ -331,12 +421,17 @@ CRITICAL RULES:
       }
 
       // Build dependency map — ONE batch query for ALL dependency edges in this tenant
-      const factIds = results.results.map(r => r.fact.id);
+      // Include ALL priority fact IDs so edges for injected priorities aren't skipped
+      const factIdSet = new Set(results.results.map(r => r.fact.id));
+      for (const [factId] of priorityLabels) factIdSet.add(factId);
+
       const depMap = new Map<string, { blocks: string[]; blockedBy: string[]; deadlines: string[] }>();
+      function ensureDepEntry(id: string) {
+        if (!depMap.has(id)) depMap.set(id, { blocks: [], blockedBy: [], deadlines: [] });
+        return depMap.get(id)!;
+      }
 
       try {
-        // Query ALL precedes/depends_on/deadline edges — not just for these fact_ids
-        // because edges reference sourceFactId/targetFactId in metadata, not in fact_id column
         const { data: depEdges } = await (config.storage as any).client
           .from('edges')
           .select('relation, fact_id, metadata')
@@ -344,52 +439,73 @@ CRITICAL RULES:
           .in('relation', ['precedes', 'depends_on', 'deadline']);
 
         if (depEdges) {
+          // Build a reverse lookup: factId → Set of factIds it blocks (from precedes edges)
+          const blocksLookup = new Map<string, Set<string>>();
+
           for (const edge of depEdges) {
             const edgeMeta = edge.metadata as Record<string, unknown> | undefined;
             const sourceFactId = (edgeMeta?.sourceFactId as string) || edge.fact_id;
             const targetFactId = edgeMeta?.targetFactId as string | undefined;
 
-            // Only process edges involving facts in our result set
-            const sourceInResults = factIds.includes(sourceFactId);
-            const targetInResults = targetFactId ? factIds.includes(targetFactId) : false;
-            if (!sourceInResults && !targetInResults) continue;
-
-            if (!depMap.has(sourceFactId)) depMap.set(sourceFactId, { blocks: [], blockedBy: [], deadlines: [] });
+            // Only process edges involving facts in our result set OR priority facts
+            if (!factIdSet.has(sourceFactId) && !(targetFactId && factIdSet.has(targetFactId))) continue;
 
             if (edge.relation === 'precedes' && targetFactId) {
-              const label = priorityLabels.get(targetFactId) || 'another priority';
-              depMap.get(sourceFactId)!.blocks.push(label);
+              // Source blocks target — index BOTH directions
+              const sourceLabel = priorityLabels.get(targetFactId) || 'another priority';
+              ensureDepEntry(sourceFactId).blocks.push(sourceLabel);
+              const targetLabel = priorityLabels.get(sourceFactId) || 'another priority';
+              ensureDepEntry(targetFactId).blockedBy.push(targetLabel);
+              // Track for deadline cascade
+              if (!blocksLookup.has(sourceFactId)) blocksLookup.set(sourceFactId, new Set());
+              blocksLookup.get(sourceFactId)!.add(targetFactId);
             }
             if (edge.relation === 'depends_on' && targetFactId) {
               const label = priorityLabels.get(targetFactId) || 'another priority';
-              depMap.get(sourceFactId)!.blockedBy.push(label);
+              ensureDepEntry(sourceFactId).blockedBy.push(label);
+              // Reverse: target blocks source
+              const reverseLabel = priorityLabels.get(sourceFactId) || 'another priority';
+              ensureDepEntry(targetFactId).blocks.push(reverseLabel);
             }
             if (edge.relation === 'deadline') {
               const deadline = edgeMeta?.deadline as string | undefined;
               if (deadline) {
-                depMap.get(sourceFactId)!.deadlines.push(deadline);
-                // Cascade deadline upstream: if X blocks Y and Y has deadline, X gets it too
-                for (const [fid, deps2] of depMap) {
-                  if (deps2.blocks.some(b => b.includes(sourceFactId.slice(0, 8)) || priorityLabels.get(sourceFactId)?.includes(b.split('(')[1]?.slice(0, 10) || ''))) {
-                    if (!deps2.deadlines.includes(deadline)) deps2.deadlines.push(deadline + ' (cascaded)');
+                ensureDepEntry(sourceFactId).deadlines.push(deadline);
+              }
+            }
+          }
+
+          // Deduplicate blocks/blockedBy (precedes + depends_on can create duplicates)
+          for (const [, deps] of depMap) {
+            deps.blocks = [...new Set(deps.blocks)];
+            deps.blockedBy = [...new Set(deps.blockedBy)];
+          }
+
+          // Cascade deadlines: if A blocks B and B has a deadline, A gets it too
+          for (const [factId, targets] of blocksLookup) {
+            const sourceDeps = depMap.get(factId);
+            if (!sourceDeps || sourceDeps.deadlines.length > 0) continue;
+            for (const targetId of targets) {
+              const targetDeps = depMap.get(targetId);
+              if (targetDeps) {
+                for (const dl of targetDeps.deadlines) {
+                  if (!dl.includes('cascaded') && !sourceDeps.deadlines.includes(dl)) {
+                    sourceDeps.deadlines.push(dl + ' (cascaded)');
                   }
                 }
               }
             }
           }
 
-          // Second pass: cascade deadlines through depends_on chain
-          // If A depends_on B, and B has a deadline, A implicitly has that deadline
+          // Second pass: cascade through depends_on — if A depends_on B and A has deadline, B inherits
           for (const [factId, deps] of depMap) {
-            if (deps.deadlines.length === 0) {
-              // Check if anything this blocks has a deadline
-              for (const blockLabel of deps.blocks) {
-                for (const [otherId, otherDeps] of depMap) {
-                  if (priorityLabels.get(otherId) === blockLabel && otherDeps.deadlines.length > 0) {
-                    for (const dl of otherDeps.deadlines) {
-                      if (!dl.includes('cascaded') && !deps.deadlines.includes(dl)) {
-                        deps.deadlines.push(dl + ' (implicit — blocks deadline item)');
-                      }
+            if (deps.deadlines.length > 0) continue;
+            for (const blockLabel of deps.blocks) {
+              for (const [otherId, otherDeps] of depMap) {
+                if (priorityLabels.get(otherId) === blockLabel && otherDeps.deadlines.length > 0) {
+                  for (const dl of otherDeps.deadlines) {
+                    if (!dl.includes('cascaded') && !dl.includes('implicit') && !deps.deadlines.includes(dl)) {
+                      deps.deadlines.push(dl + ' (implicit — blocks deadline item)');
                     }
                   }
                 }
@@ -509,6 +625,54 @@ CRITICAL RULES:
           { type: 'text' as const, text: `Feedback recorded: ${useful ? 'positive' : 'negative'}` },
         ],
       };
+    },
+  );
+
+  // ─── UPDATE STATUS ───
+  server.tool(
+    'steno_update_status',
+    'Update the status of a priority/roadmap item. Use when a task changes state (e.g., started working on it, completed it, or it became blocked).',
+    {
+      priority: z.number().describe('Priority number (1-6)'),
+      status: z.enum(['not_started', 'in_progress', 'done', 'blocked']).describe('New status'),
+    },
+    async ({ priority, status }) => {
+      try {
+        // Find the fact with this priority_order
+        const { data: facts, error: findError } = await (config.storage as any).client
+          .from('facts')
+          .select('id, content, metadata')
+          .eq('tenant_id', config.tenantId)
+          .not('metadata->priority_order', 'is', null);
+
+        if (findError) throw findError;
+
+        const fact = facts?.find((f: any) => f.metadata?.priority_order === priority);
+        if (!fact) {
+          return { content: [{ type: 'text' as const, text: `No priority #${priority} found.` }] };
+        }
+
+        const oldStatus = fact.metadata?.status || 'unknown';
+        const newMetadata = { ...fact.metadata, status };
+
+        const { error: updateError } = await (config.storage as any).client
+          .from('facts')
+          .update({ metadata: newMetadata })
+          .eq('id', fact.id)
+          .eq('tenant_id', config.tenantId);
+
+        if (updateError) throw updateError;
+
+        const shortName = fact.content.replace(/^User('s)?\s+(plans|added|believes|is planning|wants|Steno)\s+/i, '').slice(0, 50);
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `Priority #${priority} (${shortName}): ${oldStatus} → ${status}`,
+          }],
+        };
+      } catch (err: any) {
+        return { content: [{ type: 'text' as const, text: `Error updating status: ${err?.message ?? err}` }] };
+      }
     },
   );
 
