@@ -37,13 +37,19 @@ export async function updateScratchpad(
   // Get existing scratchpad
   const existing = await getScratchpad(storage, tenantId, scope, scopeId);
 
-  // Append new facts
+  // Merge new facts into existing profile
   const newSection = newFacts.join('\n');
-  let updated = existing ? `${existing}\n\n--- New information ---\n${newSection}` : newSection;
+  let updated: string;
 
-  // Compress if too long
-  if (updated.length > SCRATCHPAD_MAX_CHARS) {
-    updated = await compressScratchpad(llm, updated);
+  if (!existing) {
+    // First scratchpad — just use the new facts
+    updated = newSection;
+  } else if (existing.length + newSection.length < SCRATCHPAD_MAX_CHARS) {
+    // Under limit — merge via LLM to keep it clean (not just append)
+    updated = await mergeScratchpad(llm, existing, newSection);
+  } else {
+    // Over limit — compress everything together
+    updated = await compressScratchpad(llm, `${existing}\n\nNew facts to integrate:\n${newSection}`);
   }
 
   // Find existing scratchpad fact and invalidate it
@@ -74,6 +80,30 @@ export async function updateScratchpad(
     metadata: { type: 'scratchpad', updatedAt: new Date().toISOString() },
     contradictionStatus: 'none',
   });
+}
+
+/**
+ * Merge new facts into an existing scratchpad profile.
+ * Integrates new information cleanly without duplicating.
+ */
+async function mergeScratchpad(llm: LLMAdapter, existing: string, newFacts: string): Promise<string> {
+  const response = await llm.complete([
+    {
+      role: 'system',
+      content: `You maintain a structured user profile. Merge the new facts into the existing profile.
+
+Rules:
+- If a new fact UPDATES an existing one, replace the old version (e.g., "favorite color is now green" replaces "favorite color is blue")
+- If a new fact is already covered, skip it (no duplicates)
+- If a new fact is genuinely new, add it to the appropriate section
+- Keep the profile organized by category (identity, preferences, people, goals, events, etc.)
+- Keep it concise — under ${SCRATCHPAD_MAX_CHARS} characters
+- Output ONLY the merged profile, no explanation`
+    },
+    { role: 'user', content: `EXISTING PROFILE:\n${existing}\n\nNEW FACTS TO MERGE:\n${newFacts}` }
+  ], { temperature: 0 });
+
+  return response.content;
 }
 
 /**
