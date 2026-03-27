@@ -4,9 +4,7 @@
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import type { StorageAdapter } from '../../engine/src/adapters/storage.js';
-import type { EmbeddingAdapter } from '../../engine/src/adapters/embedding.js';
-import type { LLMAdapter } from '../../engine/src/adapters/llm.js';
+import type { StorageAdapter, EmbeddingAdapter, LLMAdapter } from '@steno-ai/engine';
 
 export interface LocalServerConfig {
   storage: StorageAdapter;
@@ -17,7 +15,7 @@ export interface LocalServerConfig {
   scopeId: string;
   embeddingModel: string;
   embeddingDim: number;
-  domainEntityTypes?: import('../../engine/src/config.js').DomainEntityType[];
+  domainEntityTypes?: import('@steno-ai/engine').DomainEntityType[];
 }
 
 // ---------------------------------------------------------------------------
@@ -72,23 +70,16 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
   const server = new McpServer({
     name: 'steno-local',
     version: '0.1.0',
-    instructions: `You have access to the user's persistent long-term memory via Steno.
-
-CRITICAL RULES:
-1. ALWAYS call steno_recall BEFORE answering ANY question about the user, their life, work, projects, people they know, preferences, past events, companies, or decisions. Do this BEFORE using web search or "Relevant chats".
-2. When the user shares personal information, experiences, opinions, or decisions, call steno_remember to store it.
-3. Never say "I don't have information about that" without first checking steno_recall.
-4. Steno memory persists across ALL conversations — it knows things from past sessions that your conversation history does not.`,
   });
 
   // Lazy import to avoid loading heavy modules at startup
-  let _search: typeof import('../../engine/src/retrieval/search.js').search | null = null;
-  let _pipeline: typeof import('../../engine/src/extraction/pipeline.js').runExtractionPipeline | null = null;
-  let _getOrCreateActiveSession: typeof import('../../engine/src/sessions/manager.js').getOrCreateActiveSession | null = null;
+  let _search: typeof import('@steno-ai/engine').search | null = null;
+  let _pipeline: typeof import('@steno-ai/engine').runExtractionPipeline | null = null;
+  let _getOrCreateActiveSession: typeof import('@steno-ai/engine').getOrCreateActiveSession | null = null;
 
   async function getSearch() {
     if (!_search) {
-      const mod = await import('../../engine/src/retrieval/search.js');
+      const mod = await import('@steno-ai/engine');
       _search = mod.search;
     }
     return _search;
@@ -96,7 +87,7 @@ CRITICAL RULES:
 
   async function getPipeline() {
     if (!_pipeline) {
-      const mod = await import('../../engine/src/extraction/pipeline.js');
+      const mod = await import('@steno-ai/engine');
       _pipeline = mod.runExtractionPipeline;
     }
     return _pipeline;
@@ -104,7 +95,7 @@ CRITICAL RULES:
 
   async function getSessionManager() {
     if (!_getOrCreateActiveSession) {
-      const mod = await import('../../engine/src/sessions/manager.js');
+      const mod = await import('@steno-ai/engine');
       _getOrCreateActiveSession = mod.getOrCreateActiveSession;
     }
     return _getOrCreateActiveSession;
@@ -343,10 +334,10 @@ CRITICAL RULES:
         tenantId: config.tenantId,
         factId: fact_id,
         query: '',
-        searchRank: 0,
-        feedbackType: useful ? 'explicit_positive' : 'explicit_negative',
+        retrievalMethod: 'feedback',
+        rankPosition: 0,
         responseTimeMs: 0,
-      });
+      } as any);
       return {
         content: [
           { type: 'text' as const, text: `Feedback recorded: ${useful ? 'positive' : 'negative'}` },

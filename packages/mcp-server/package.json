@@ -1,6 +1,6 @@
 {
   "name": "@steno-ai/mcp",
-  "version": "0.1.5",
+  "version": "0.1.10",
   "description": "MCP server for Claude Code, Claude Desktop, and other MCP clients",
   "license": "MIT",
   "repository": {
@@ -9,10 +9,7 @@
     "directory": "packages/mcp-server"
   },
   "type": "module",
-  "bin": {
-    "steno-mcp": "./dist/cli.js",
-    "steno-mcp-init": "./dist/init.js"
-  },
+  "bin": "./dist/cli.js",
   "exports": {
     ".": {
       "import": "./dist/index.js",
@@ -21,7 +18,11 @@
     }
   },
   "types": "./dist/index.d.ts",
-  "files": ["dist", "src", "README.md"],
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
   "scripts": {
     "test": "vitest run",
     "build": "tsc",
@@ -29,6 +30,9 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1",
+    "@steno-ai/engine": "workspace:*",
+    "@steno-ai/openai-adapter": "workspace:*",
+    "@steno-ai/supabase-adapter": "workspace:*",
     "@supabase/supabase-js": "^2.49.0",
     "openai": "^4.0.0",
     "zod": "^3.25"

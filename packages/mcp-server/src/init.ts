@@ -304,7 +304,7 @@ async function main() {
   let skipped = 0;
   for (let i = 0; i < MIGRATIONS.length; i++) {
     try {
-      const { error } = await supabase.rpc('exec_sql', { query: MIGRATIONS[i] }).catch(() => ({ error: { message: 'rpc not available' } }));
+      const { error } = await (supabase.rpc('exec_sql', { query: MIGRATIONS[i] }) as any).catch(() => ({ error: { message: 'rpc not available' } }));
       if (error) {
         // Try direct REST approach
         const res = await fetch(`${supabaseUrl}/rest/v1/rpc/exec_sql`, {

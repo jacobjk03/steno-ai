@@ -2,5 +2,5 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "outDir": "dist", "rootDir": "src", "noEmit": false, "lib": ["ES2022", "DOM"] },
   "include": ["src/**/*.ts"],
-  "exclude": ["tests", "dist", "src/local.ts", "src/local-server.ts", "src/cli.ts", "src/init.ts"]
+  "exclude": ["tests", "dist"]
 }

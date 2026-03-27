@@ -5,9 +5,9 @@
  */
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createLocalServer } from './local-server.js';
-import { createSupabaseClient, SupabaseStorageAdapter } from '../../supabase-adapter/src/index.js';
-import { OpenAILLMAdapter, OpenAIEmbeddingAdapter } from '../../openai-adapter/src/index.js';
-import { PerplexityEmbeddingAdapter } from '../../engine/src/adapters/perplexity-embedding.js';
+import { createSupabaseClient, SupabaseStorageAdapter } from '@steno-ai/supabase-adapter';
+import { OpenAILLMAdapter, OpenAIEmbeddingAdapter } from '@steno-ai/openai-adapter';
+import { PerplexityEmbeddingAdapter } from '@steno-ai/engine';
 
 async function main(): Promise<void> {
   const supabaseUrl = process.env.SUPABASE_URL;
@@ -49,7 +49,7 @@ async function main(): Promise<void> {
   const scopeId = process.env.STENO_SCOPE_ID || 'default';
 
   try {
-    await storage.createTenant({ id: tenantId, name: 'MCP User', slug: `mcp-${Date.now()}`, plan: 'enterprise' });
+    await storage.createTenant({ id: tenantId, name: 'MCP User', slug: `mcp-${Date.now()}`, plan: 'enterprise', config: {} } as any);
   } catch { /* already exists */ }
 
   const server = createLocalServer({

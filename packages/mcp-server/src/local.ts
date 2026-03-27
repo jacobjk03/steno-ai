@@ -33,9 +33,9 @@ async function main(): Promise<void> {
 
   // Dynamic imports to avoid loading everything at module level
   const { createSupabaseClient, SupabaseStorageAdapter } = await import(
-    '../../supabase-adapter/src/index.js'
+    '@steno-ai/supabase-adapter'
   );
-  const { OpenAILLMAdapter } = await import('../../openai-adapter/src/index.js');
+  const { OpenAILLMAdapter } = await import('@steno-ai/openai-adapter');
 
   // Set up adapters
   const supabase = createSupabaseClient({ url: supabaseUrl, serviceRoleKey: supabaseKey });
@@ -49,7 +49,7 @@ async function main(): Promise<void> {
 
   if (process.env.PERPLEXITY_API_KEY) {
     const { PerplexityEmbeddingAdapter } = await import(
-      '../../engine/src/adapters/perplexity-embedding.js'
+      '@steno-ai/engine'
     );
     embedding = new PerplexityEmbeddingAdapter({
       apiKey: process.env.PERPLEXITY_API_KEY,
@@ -59,7 +59,7 @@ async function main(): Promise<void> {
     embeddingModel = 'pplx-embed-v1-4b';
     embeddingDim = 2000;
   } else {
-    const { OpenAIEmbeddingAdapter } = await import('../../openai-adapter/src/index.js');
+    const { OpenAIEmbeddingAdapter } = await import('@steno-ai/openai-adapter');
     embedding = new OpenAIEmbeddingAdapter({
       apiKey: openaiKey,
       model: 'text-embedding-3-large',
@@ -79,7 +79,8 @@ async function main(): Promise<void> {
       name: 'Local MCP',
       slug: `local-mcp-${Date.now()}`,
       plan: 'enterprise',
-    });
+      config: {},
+    } as any);
   } catch {
     // Tenant already exists
   }
