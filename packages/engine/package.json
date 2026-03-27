@@ -1,6 +1,6 @@
 {
   "name": "@steno-ai/engine",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Core memory engine — extraction, retrieval, knowledge graph",
   "license": "MIT",
   "repository": {
