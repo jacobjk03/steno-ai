@@ -291,40 +291,44 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
         return { content: [{ type: 'text' as const, text: 'No memories found.' }] };
       }
 
-      // Build dependency map from edges (ONE query, not per-fact)
+      // Build dependency map — ONE batch query for all edges referencing these facts
       const factIds = results.results.map(r => r.fact.id);
+      const factContentMap = new Map(results.results.map(r => [r.fact.id, r.fact.content.slice(0, 60)]));
       const depMap = new Map<string, { blocks: string[]; blockedBy: string[]; deadlines: string[] }>();
 
       try {
-        // Query ALL dependency edges for the steno entity (they reference fact IDs in metadata)
-        const stenoEntities = await config.storage.getEntitiesForTenant(config.tenantId, { limit: 5 });
-        for (const entity of stenoEntities.data) {
-          const edges = await config.storage.getEdgesForEntity(config.tenantId, entity.id);
-          for (const edge of edges) {
-            if (!['precedes', 'depends_on', 'deadline'].includes(edge.relation)) continue;
+        // Single Supabase query: get all edges where fact_id is in our result set
+        // This covers precedes, depends_on, deadline edges that reference these facts
+        const { data: depEdges } = await (config.storage as any).client
+          .from('edges')
+          .select('relation, fact_id, metadata')
+          .eq('tenant_id', config.tenantId)
+          .in('relation', ['precedes', 'depends_on', 'deadline'])
+          .or(factIds.map(id => `fact_id.eq.${id}`).join(','));
+
+        if (depEdges) {
+          for (const edge of depEdges) {
             const edgeMeta = edge.metadata as Record<string, unknown> | undefined;
-            const sourceFactId = edgeMeta?.sourceFactId as string | undefined;
+            const sourceFactId = (edgeMeta?.sourceFactId as string) || edge.fact_id;
             const targetFactId = edgeMeta?.targetFactId as string | undefined;
 
-            if (edge.relation === 'precedes' && sourceFactId && targetFactId) {
-              if (!depMap.has(sourceFactId)) depMap.set(sourceFactId, { blocks: [], blockedBy: [], deadlines: [] });
-              // Find target fact content
-              const target = results.results.find(x => x.fact.id === targetFactId);
-              if (target) depMap.get(sourceFactId)!.blocks.push(target.fact.content.slice(0, 60));
+            if (!depMap.has(sourceFactId)) depMap.set(sourceFactId, { blocks: [], blockedBy: [], deadlines: [] });
+
+            if (edge.relation === 'precedes' && targetFactId) {
+              const targetContent = factContentMap.get(targetFactId);
+              if (targetContent) depMap.get(sourceFactId)!.blocks.push(targetContent);
             }
-            if (edge.relation === 'depends_on' && sourceFactId && targetFactId) {
-              if (!depMap.has(sourceFactId)) depMap.set(sourceFactId, { blocks: [], blockedBy: [], deadlines: [] });
-              const dep = results.results.find(x => x.fact.id === targetFactId);
-              if (dep) depMap.get(sourceFactId)!.blockedBy.push(dep.fact.content.slice(0, 60));
+            if (edge.relation === 'depends_on' && targetFactId) {
+              const depContent = factContentMap.get(targetFactId);
+              if (depContent) depMap.get(sourceFactId)!.blockedBy.push(depContent);
             }
-            if (edge.relation === 'deadline' && edge.factId) {
-              if (!depMap.has(edge.factId)) depMap.set(edge.factId, { blocks: [], blockedBy: [], deadlines: [] });
+            if (edge.relation === 'deadline') {
               const deadline = edgeMeta?.deadline as string | undefined;
-              if (deadline) depMap.get(edge.factId)!.deadlines.push(deadline);
+              if (deadline) depMap.get(sourceFactId)!.deadlines.push(deadline);
             }
           }
         }
-      } catch { /* edge lookup failed */ }
+      } catch { /* batch edge lookup failed — continue without deps */ }
 
       const enrichedLines: string[] = [];
       for (const r of results.results) {
