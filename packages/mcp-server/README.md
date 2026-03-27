@@ -59,7 +59,16 @@ That's it. Your data stays in YOUR Supabase project. Nothing is shared.
 - Session buffering for cross-message context
 - Source chunk preservation for full-context answers
 
-## Manual Setup (if you prefer)
+## Claude Code Setup
+
+```bash
+claude mcp add steno-memory -- npx -y @steno-ai/mcp \
+  --env SUPABASE_URL=https://YOUR-PROJECT.supabase.co \
+  --env SUPABASE_SERVICE_ROLE_KEY=eyJ... \
+  --env OPENAI_API_KEY=sk-...
+```
+
+## Claude Desktop — Manual Setup
 
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 

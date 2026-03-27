@@ -6,7 +6,7 @@
   "mcpServers": {
     "steno-memory": {
       "command": "npx",
-      "args": ["tsx", "${CLAUDE_PLUGIN_ROOT}/../packages/mcp-server/src/local.ts"],
+      "args": ["-y", "@steno-ai/mcp"],
       "env": {
         "SUPABASE_URL": "${SUPABASE_URL}",
         "SUPABASE_SERVICE_ROLE_KEY": "${SUPABASE_SERVICE_ROLE_KEY}",
