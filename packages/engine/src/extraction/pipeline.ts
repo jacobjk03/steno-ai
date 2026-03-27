@@ -281,7 +281,7 @@ async function executeExtraction(
       },
       sourceChunk: fact.sourceChunk,
       eventDate: fact.eventDate,
-      documentDate: fact.documentDate,
+      documentDate: fact.documentDate ?? new Date(), // Always set — when the conversation happened
     });
 
     // Track counts — Git-style append-only: NEVER invalidate old facts.
