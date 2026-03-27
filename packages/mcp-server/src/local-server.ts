@@ -291,14 +291,33 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
         return { content: [{ type: 'text' as const, text: 'No memories found.' }] };
       }
 
-      // Build priority label map: factId → "Priority #N" short name
+      // Build priority label map: factId → "Priority #N (short name)"
+      // Query ALL facts with priority_order metadata — not just the ones in results
+      // This ensures labels resolve even for facts referenced by edges but not in recall
       const priorityLabels = new Map<string, string>();
+      try {
+        const { data: allPriorityFacts } = await (config.storage as any).client
+          .from('facts')
+          .select('id, content, metadata')
+          .eq('tenant_id', config.tenantId)
+          .not('metadata->priority_order', 'is', null);
+        if (allPriorityFacts) {
+          for (const f of allPriorityFacts) {
+            const order = f.metadata?.priority_order;
+            if (order) {
+              const shortName = f.content.replace(/^User('s)?\s+(plans|added|believes|is planning|wants|Steno)\s+/i, '').slice(0, 35).replace(/\s+\S*$/, '');
+              priorityLabels.set(f.id, `Priority #${order} (${shortName})`);
+            }
+          }
+        }
+      } catch { /* fallback to results-only labels */ }
+      // Also add labels from results (in case metadata query missed any)
       for (const r of results.results) {
+        if (priorityLabels.has(r.fact.id)) continue;
         const meta = r.fact.metadata as Record<string, unknown> | undefined;
         const order = meta?.priority_order as number | undefined;
         if (order) {
-          // Extract a short name from fact content (first ~40 chars, clean up)
-          const shortName = r.fact.content.replace(/^User('s)?\s+(plans|added|believes|is planning|wants)\s+/i, '').slice(0, 40).replace(/\s+\S*$/, '');
+          const shortName = r.fact.content.replace(/^User('s)?\s+(plans|added|believes|is planning|wants)\s+/i, '').slice(0, 35).replace(/\s+\S*$/, '');
           priorityLabels.set(r.fact.id, `Priority #${order} (${shortName})`);
         }
       }
@@ -330,11 +349,11 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
             if (!depMap.has(sourceFactId)) depMap.set(sourceFactId, { blocks: [], blockedBy: [], deadlines: [] });
 
             if (edge.relation === 'precedes' && targetFactId) {
-              const label = priorityLabels.get(targetFactId) || targetFactId.slice(0, 8);
+              const label = priorityLabels.get(targetFactId) || 'another priority';
               depMap.get(sourceFactId)!.blocks.push(label);
             }
             if (edge.relation === 'depends_on' && targetFactId) {
-              const label = priorityLabels.get(targetFactId) || targetFactId.slice(0, 8);
+              const label = priorityLabels.get(targetFactId) || 'another priority';
               depMap.get(sourceFactId)!.blockedBy.push(label);
             }
             if (edge.relation === 'deadline') {
