@@ -267,6 +267,15 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     return toCamelCase(data as Record<string, unknown>) as unknown as Extraction;
   }
 
+  async deleteExtraction(tenantId: string, id: string): Promise<void> {
+    const { error } = await this.client
+      .from('extractions')
+      .delete()
+      .eq('tenant_id', tenantId)
+      .eq('id', id);
+    if (error) throwSupabaseError('deleteExtraction', error);
+  }
+
   async getExtractionsByTenant(
     tenantId: string,
     options: PaginationOptions,

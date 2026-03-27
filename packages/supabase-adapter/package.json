@@ -1,6 +1,6 @@
 {
   "name": "@steno-ai/supabase-adapter",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "description": "Supabase/PostgreSQL storage adapter for Steno",
   "license": "MIT",
   "repository": {
@@ -17,7 +17,11 @@
     }
   },
   "types": "./dist/index.d.ts",
-  "files": ["dist", "src", "README.md"],
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
   "scripts": {
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest watch",
@@ -29,5 +33,8 @@
     "@steno-ai/engine": "workspace:*",
     "@supabase/supabase-js": "^2"
   },
-  "devDependencies": { "typescript": "^5.7", "vitest": "^3" }
+  "devDependencies": {
+    "typescript": "^5.7",
+    "vitest": "^3"
+  }
 }

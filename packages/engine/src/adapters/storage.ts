@@ -149,6 +149,7 @@ export interface StorageAdapter {
   getExtraction(tenantId: string, id: string): Promise<Extraction | null>;
   updateExtraction(tenantId: string, id: string, updates: Partial<Extraction>): Promise<Extraction>;
   getExtractionByHash(tenantId: string, inputHash: string): Promise<Extraction | null>;
+  deleteExtraction(tenantId: string, id: string): Promise<void>;
   getExtractionsByTenant(tenantId: string, options: PaginationOptions): Promise<PaginatedResult<Extraction>>;
 
   // Sessions

@@ -1,6 +1,6 @@
 {
   "name": "@steno-ai/engine",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "description": "Core memory engine — extraction, retrieval, knowledge graph",
   "license": "MIT",
   "repository": {
@@ -17,7 +17,11 @@
     }
   },
   "types": "./dist/index.d.ts",
-  "files": ["dist", "src", "README.md"],
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest watch",

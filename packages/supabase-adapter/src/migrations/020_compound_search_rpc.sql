@@ -16,7 +16,7 @@ RETURNS TABLE (
     tenant_id UUID,
     scope TEXT,
     scope_id TEXT,
-    session_id UUID,
+    session_id TEXT,
     content TEXT,
     embedding_model TEXT,
     embedding_dim INT,
@@ -41,6 +41,9 @@ RETURNS TABLE (
     modality TEXT,
     tags TEXT[],
     metadata JSONB,
+    event_date TIMESTAMPTZ,
+    document_date TIMESTAMPTZ,
+    source_chunk TEXT,
     created_at TIMESTAMPTZ,
     relevance_score FLOAT
 )
@@ -59,7 +62,8 @@ BEGIN
         f.last_accessed, f.decay_score, f.contradiction_status,
         f.contradicts_id, f.source_type, f.source_ref, f.confidence,
         f.original_content, f.extraction_id, f.extraction_tier,
-        f.modality, f.tags, f.metadata, f.created_at,
+        f.modality, f.tags, f.metadata,
+        f.event_date, f.document_date, f.source_chunk, f.created_at,
         (1 - (f.embedding <=> query_embedding::vector))::float AS relevance_score
     FROM facts f
     WHERE f.tenant_id = match_tenant_id
@@ -84,7 +88,8 @@ BEGIN
         f.last_accessed, f.decay_score, f.contradiction_status,
         f.contradicts_id, f.source_type, f.source_ref, f.confidence,
         f.original_content, f.extraction_id, f.extraction_tier,
-        f.modality, f.tags, f.metadata, f.created_at,
+        f.modality, f.tags, f.metadata,
+        f.event_date, f.document_date, f.source_chunk, f.created_at,
         ts_rank(f.search_vector, to_tsquery('english', search_query))::float AS relevance_score
     FROM facts f
     WHERE f.tenant_id = match_tenant_id

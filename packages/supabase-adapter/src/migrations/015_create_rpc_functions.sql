@@ -6,6 +6,7 @@
 -- Called by SupabaseStorageAdapter.incrementUsage()
 -- Uses INSERT ... ON CONFLICT DO UPDATE to atomically add to existing totals
 -- rather than replacing them (which .upsert() does by default).
+-- IMPORTANT: Requires UNIQUE constraint on (tenant_id, period_start).
 CREATE OR REPLACE FUNCTION increment_usage(
     p_tenant_id UUID,
     p_tokens INT,
@@ -34,6 +35,8 @@ $$;
 
 -- Vector similarity search function
 -- Called by SupabaseStorageAdapter.vectorSearch()
+-- NOTE: session_id is TEXT (not UUID) to support non-UUID session identifiers.
+-- NOTE: importance, decay_score, confidence are NUMERIC to match the facts table.
 CREATE OR REPLACE FUNCTION match_facts(
     query_embedding TEXT,
     match_tenant_id UUID,
@@ -48,7 +51,7 @@ RETURNS TABLE (
     tenant_id UUID,
     scope TEXT,
     scope_id TEXT,
-    session_id UUID,
+    session_id TEXT,
     content TEXT,
     embedding_model TEXT,
     embedding_dim INT,
@@ -58,21 +61,24 @@ RETURNS TABLE (
     valid_until TIMESTAMPTZ,
     operation TEXT,
     parent_id UUID,
-    importance FLOAT,
+    importance NUMERIC,
     frequency INT,
     last_accessed TIMESTAMPTZ,
-    decay_score FLOAT,
+    decay_score NUMERIC,
     contradiction_status TEXT,
     contradicts_id UUID,
     source_type TEXT,
     source_ref JSONB,
-    confidence FLOAT,
+    confidence NUMERIC,
     original_content TEXT,
     extraction_id UUID,
     extraction_tier TEXT,
     modality TEXT,
     tags TEXT[],
     metadata JSONB,
+    event_date TIMESTAMPTZ,
+    document_date TIMESTAMPTZ,
+    source_chunk TEXT,
     created_at TIMESTAMPTZ,
     similarity FLOAT
 )
@@ -88,7 +94,9 @@ BEGIN
         f.last_accessed, f.decay_score, f.contradiction_status,
         f.contradicts_id, f.source_type, f.source_ref, f.confidence,
         f.original_content, f.extraction_id, f.extraction_tier,
-        f.modality, f.tags, f.metadata, f.created_at,
+        f.modality, f.tags, f.metadata,
+        f.event_date, f.document_date, f.source_chunk,
+        f.created_at,
         (1 - (f.embedding <=> query_embedding::vector)) AS similarity
     FROM facts f
     WHERE f.tenant_id = match_tenant_id

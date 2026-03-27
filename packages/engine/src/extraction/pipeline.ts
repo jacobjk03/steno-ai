@@ -428,6 +428,11 @@ export async function runExtractionPipeline(
     };
   }
 
+  // If a previous extraction with the same hash failed, delete it so we can retry
+  if (existing && existing.status === 'failed') {
+    await config.storage.deleteExtraction(input.tenantId, existing.id);
+  }
+
   // 3. Create extraction record with status='queued'
   //    Handle race condition: concurrent workers may try to create the same hash simultaneously
   const extractionId = crypto.randomUUID();
@@ -445,7 +450,9 @@ export async function runExtractionPipeline(
       scopeId: input.scopeId,
       sessionId: input.sessionId,
     });
-  } catch {
+  } catch (createErr) {
+    // Log the actual error so it's not silently swallowed
+    console.error(`[steno] createExtraction failed:`, createErr instanceof Error ? createErr.message : createErr);
     // Duplicate hash — another worker beat us. Return their result.
     const raceWinner = await config.storage.getExtractionByHash(input.tenantId, inputHash);
     if (raceWinner) {

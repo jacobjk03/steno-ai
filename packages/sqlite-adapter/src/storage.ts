@@ -1419,6 +1419,10 @@ export class SQLiteStorageAdapter implements StorageAdapter {
     return rowToExtraction(row);
   }
 
+  async deleteExtraction(tenantId: string, id: string): Promise<void> {
+    this.db.prepare('DELETE FROM extractions WHERE tenant_id = ? AND id = ?').run(tenantId, id);
+  }
+
   async getExtractionsByTenant(
     tenantId: string,
     options: PaginationOptions,

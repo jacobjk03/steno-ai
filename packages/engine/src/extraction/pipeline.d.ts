@@ -1,6 +1,7 @@
 import type { StorageAdapter } from '../adapters/storage.js';
 import type { EmbeddingAdapter } from '../adapters/embedding.js';
 import type { LLMAdapter } from '../adapters/llm.js';
+import type { DomainEntityType } from '../config.js';
 import type { ExtractionInput, PipelineResult, ExtractedFact, ExtractedEntity } from './types.js';
 export interface PipelineConfig {
     storage: StorageAdapter;
@@ -12,6 +13,8 @@ export interface PipelineConfig {
     embeddingDim: number;
     decayHalfLifeDays?: number;
     decayNormalizationK?: number;
+    entityTypes?: string[];
+    domainEntityTypes?: DomainEntityType[];
 }
 export declare function inputToText(input: ExtractionInput): string;
 export declare function mergeFacts(heuristic: ExtractedFact[], llm: ExtractedFact[]): ExtractedFact[];
