@@ -291,20 +291,30 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
         return { content: [{ type: 'text' as const, text: 'No memories found.' }] };
       }
 
-      // Build dependency map — ONE batch query for all edges referencing these facts
+      // Build priority label map: factId → "Priority #N" short name
+      const priorityLabels = new Map<string, string>();
+      for (const r of results.results) {
+        const meta = r.fact.metadata as Record<string, unknown> | undefined;
+        const order = meta?.priority_order as number | undefined;
+        if (order) {
+          // Extract a short name from fact content (first ~40 chars, clean up)
+          const shortName = r.fact.content.replace(/^User('s)?\s+(plans|added|believes|is planning|wants)\s+/i, '').slice(0, 40).replace(/\s+\S*$/, '');
+          priorityLabels.set(r.fact.id, `Priority #${order} (${shortName})`);
+        }
+      }
+
+      // Build dependency map — ONE batch query for ALL dependency edges in this tenant
       const factIds = results.results.map(r => r.fact.id);
-      const factContentMap = new Map(results.results.map(r => [r.fact.id, r.fact.content.slice(0, 60)]));
       const depMap = new Map<string, { blocks: string[]; blockedBy: string[]; deadlines: string[] }>();
 
       try {
-        // Single Supabase query: get all edges where fact_id is in our result set
-        // This covers precedes, depends_on, deadline edges that reference these facts
+        // Query ALL precedes/depends_on/deadline edges — not just for these fact_ids
+        // because edges reference sourceFactId/targetFactId in metadata, not in fact_id column
         const { data: depEdges } = await (config.storage as any).client
           .from('edges')
           .select('relation, fact_id, metadata')
           .eq('tenant_id', config.tenantId)
-          .in('relation', ['precedes', 'depends_on', 'deadline'])
-          .or(factIds.map(id => `fact_id.eq.${id}`).join(','));
+          .in('relation', ['precedes', 'depends_on', 'deadline']);
 
         if (depEdges) {
           for (const edge of depEdges) {
@@ -312,26 +322,68 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
             const sourceFactId = (edgeMeta?.sourceFactId as string) || edge.fact_id;
             const targetFactId = edgeMeta?.targetFactId as string | undefined;
 
+            // Only process edges involving facts in our result set
+            const sourceInResults = factIds.includes(sourceFactId);
+            const targetInResults = targetFactId ? factIds.includes(targetFactId) : false;
+            if (!sourceInResults && !targetInResults) continue;
+
             if (!depMap.has(sourceFactId)) depMap.set(sourceFactId, { blocks: [], blockedBy: [], deadlines: [] });
 
             if (edge.relation === 'precedes' && targetFactId) {
-              const targetContent = factContentMap.get(targetFactId);
-              if (targetContent) depMap.get(sourceFactId)!.blocks.push(targetContent);
+              const label = priorityLabels.get(targetFactId) || targetFactId.slice(0, 8);
+              depMap.get(sourceFactId)!.blocks.push(label);
             }
             if (edge.relation === 'depends_on' && targetFactId) {
-              const depContent = factContentMap.get(targetFactId);
-              if (depContent) depMap.get(sourceFactId)!.blockedBy.push(depContent);
+              const label = priorityLabels.get(targetFactId) || targetFactId.slice(0, 8);
+              depMap.get(sourceFactId)!.blockedBy.push(label);
             }
             if (edge.relation === 'deadline') {
               const deadline = edgeMeta?.deadline as string | undefined;
-              if (deadline) depMap.get(sourceFactId)!.deadlines.push(deadline);
+              if (deadline) {
+                depMap.get(sourceFactId)!.deadlines.push(deadline);
+                // Cascade deadline upstream: if X blocks Y and Y has deadline, X gets it too
+                for (const [fid, deps2] of depMap) {
+                  if (deps2.blocks.some(b => b.includes(sourceFactId.slice(0, 8)) || priorityLabels.get(sourceFactId)?.includes(b.split('(')[1]?.slice(0, 10) || ''))) {
+                    if (!deps2.deadlines.includes(deadline)) deps2.deadlines.push(deadline + ' (cascaded)');
+                  }
+                }
+              }
+            }
+          }
+
+          // Second pass: cascade deadlines through depends_on chain
+          // If A depends_on B, and B has a deadline, A implicitly has that deadline
+          for (const [factId, deps] of depMap) {
+            if (deps.deadlines.length === 0) {
+              // Check if anything this blocks has a deadline
+              for (const blockLabel of deps.blocks) {
+                for (const [otherId, otherDeps] of depMap) {
+                  if (priorityLabels.get(otherId) === blockLabel && otherDeps.deadlines.length > 0) {
+                    for (const dl of otherDeps.deadlines) {
+                      if (!dl.includes('cascaded') && !deps.deadlines.includes(dl)) {
+                        deps.deadlines.push(dl + ' (implicit — blocks deadline item)');
+                      }
+                    }
+                  }
+                }
+              }
             }
           }
         }
-      } catch { /* batch edge lookup failed — continue without deps */ }
+      } catch { /* batch edge lookup failed */ }
+
+      // Sort results: priorities first (by priority_order), then regular memories
+      const sortedResults = [...results.results].sort((a, b) => {
+        const aOrder = (a.fact.metadata as any)?.priority_order as number | undefined;
+        const bOrder = (b.fact.metadata as any)?.priority_order as number | undefined;
+        if (aOrder && bOrder) return aOrder - bOrder;
+        if (aOrder) return -1;
+        if (bOrder) return 1;
+        return b.score - a.score;
+      });
 
       const enrichedLines: string[] = [];
-      for (const r of results.results) {
+      for (const r of sortedResults) {
         const meta = r.fact.metadata as Record<string, unknown> | undefined;
         const status = meta?.status as string | undefined;
         const priorityOrder = meta?.priority_order as number | undefined;
@@ -346,7 +398,6 @@ export function createLocalServer(config: LocalServerConfig): McpServer {
           .map(([k, v]) => `${k.replace('Score', '')}=${(v as number).toFixed(2)}`)
           .join(', ');
 
-        // Format with dependency context
         const isPriority = status || priorityOrder;
         const blocks = deps?.blocks ?? [];
         const blockedBy = deps?.blockedBy ?? [];
