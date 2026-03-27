@@ -331,7 +331,7 @@ async function executeExtraction(
   // Cross-link new facts to existing related facts via shared entities + keyword overlap
   if (createdFactIds.length > 0) {
     try {
-      const crossLinked = await linkRelatedFacts(config.storage, input.tenantId, createdFactIds, entityIdMap);
+      const crossLinked = await linkRelatedFacts(config.storage, input.tenantId, createdFactIds, entityIdMap, config.cheapLLM);
       edgesCreated += crossLinked;
     } catch (err) {
       console.error('[steno] Cross-linking failed:', err instanceof Error ? err.message : err);

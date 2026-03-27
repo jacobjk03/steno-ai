@@ -1,29 +1,26 @@
 /**
- * Cross-Fact Edge Linker — Intelligent Relationship Detection
+ * Cross-Fact Edge Linker — LLM-Powered Relationship Classification
  *
- * After extraction, finds existing facts that share entities with new facts
- * AND are semantically similar (not just any shared entity). Creates
- * 'relates_to' edges only when facts are actually about the same topic.
+ * After extraction, finds existing facts that share entities with new facts,
+ * then uses ONE LLM call to classify the relationship structure:
+ * - part_of: "session ingestion" is part_of "steno roadmap"
+ * - has_child: "steno roadmap" has_child "session ingestion"
+ * - extends: new fact adds detail to existing
+ * - derives: new fact is inferred from existing
+ * - relates_to: loosely related (fallback)
  *
- * Heuristics:
- * 1. Shared entity (required) — both facts mention the same entity
- * 2. Content similarity (required) — facts have overlapping keywords (>30% overlap)
- * 3. Temporal proximity (bonus) — facts created within 7 days get priority
- * 4. Skip generic entities — "user" entity is too broad to link on
+ * Heuristics filter candidates FIRST (shared entity + keyword overlap),
+ * then ONE LLM call classifies the batch. No wasted LLM calls on unrelated facts.
  */
 
 import type { StorageAdapter } from '../adapters/storage.js';
+import type { LLMAdapter } from '../adapters/llm.js';
 import type { Fact } from '../models/fact.js';
 
-const GENERIC_ENTITIES = new Set(['user', 'assistant', 'navia', 'steno']);
-const MIN_KEYWORD_OVERLAP = 0.25; // 25% of keywords must overlap
-const MAX_LINKS_PER_FACT = 3; // Don't create too many edges per new fact
-const TEMPORAL_WINDOW_DAYS = 14; // Prefer facts within 2 weeks
+const GENERIC_ENTITIES = new Set(['user', 'assistant', 'navia']);
+const MIN_KEYWORD_OVERLAP = 0.20;
+const MAX_CANDIDATES_PER_ENTITY = 5;
 
-/**
- * Extract meaningful keywords from fact content for similarity comparison.
- * Strips stop words, lowercases, returns unique tokens.
- */
 function extractKeywords(content: string): Set<string> {
   const stopWords = new Set([
     'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
@@ -36,7 +33,6 @@ function extractKeywords(content: string): Set<string> {
     'about', 'up', 'out', 'if', 'then', 'that', 'this', 'these', 'those',
     'it', 'its', 'user', 'users', 'they', 'them', 'their', 'he', 'she',
   ]);
-
   return new Set(
     content.toLowerCase()
       .replace(/[^a-z0-9\s-]/g, ' ')
@@ -45,48 +41,36 @@ function extractKeywords(content: string): Set<string> {
   );
 }
 
-/**
- * Calculate keyword overlap ratio between two facts.
- * Returns 0-1 where 1 = identical keywords.
- */
 function keywordOverlap(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 || b.size === 0) return 0;
   let shared = 0;
-  for (const word of a) {
-    if (b.has(word)) shared++;
-  }
-  const minSize = Math.min(a.size, b.size);
-  return shared / minSize;
+  for (const word of a) { if (b.has(word)) shared++; }
+  return shared / Math.min(a.size, b.size);
+}
+
+interface CandidatePair {
+  newFact: Fact;
+  existingFact: Fact;
+  entityId: string;
+  entityName: string;
+  overlap: number;
 }
 
 /**
- * Check if two facts are temporally close (within TEMPORAL_WINDOW_DAYS).
- */
-function isTemporallyClose(a: Fact, b: Fact): boolean {
-  const aDate = new Date(a.createdAt).getTime();
-  const bDate = new Date(b.createdAt).getTime();
-  const diffDays = Math.abs(aDate - bDate) / (1000 * 60 * 60 * 24);
-  return diffDays <= TEMPORAL_WINDOW_DAYS;
-}
-
-/**
- * Link newly created facts to existing related facts through shared entities.
- * Uses keyword overlap + temporal proximity to determine relevance.
- *
- * Only creates edges when facts are genuinely related — not just because
- * they both mention "Steno" or "user".
+ * Link newly created facts to existing related facts.
+ * Step 1: Heuristic filter (shared entity + keyword overlap)
+ * Step 2: ONE LLM call to classify relationship types for the batch
+ * Step 3: Create typed edges (part_of, has_child, extends, derives, relates_to)
  */
 export async function linkRelatedFacts(
   storage: StorageAdapter,
   tenantId: string,
   newFactIds: string[],
   entityIdMap: Map<string, string>,
+  llm?: LLMAdapter,
 ): Promise<number> {
   if (newFactIds.length === 0 || entityIdMap.size === 0) return 0;
 
-  let edgesCreated = 0;
-
-  // Get the new facts' content for keyword extraction
   const newFacts = await storage.getFactsByIds(tenantId, newFactIds);
   if (newFacts.length === 0) return 0;
 
@@ -95,71 +79,132 @@ export async function linkRelatedFacts(
     newFactKeywords.set(f.id, extractKeywords(f.content));
   }
 
-  // For each NON-GENERIC entity, find existing facts that also mention it
+  // Step 1: Find candidate pairs via heuristic
+  const candidates: CandidatePair[] = [];
+  const newFactSet = new Set(newFactIds);
+
   for (const [canonicalName, entityId] of entityIdMap) {
-    if (GENERIC_ENTITIES.has(canonicalName)) continue; // Skip "user", "navia", etc.
+    if (GENERIC_ENTITIES.has(canonicalName)) continue;
 
     try {
       const linkedFacts = await storage.getFactsForEntity(tenantId, entityId, { limit: 20 });
       if (linkedFacts.data.length < 2) continue;
 
-      const newFactSet = new Set(newFactIds);
       const existingFacts = linkedFacts.data.filter(f =>
-        !newFactSet.has(f.id) &&
-        !f.tags?.includes('scratchpad') // Skip scratchpad blobs
+        !newFactSet.has(f.id) && !f.tags?.includes('scratchpad')
       );
 
       for (const newFact of newFacts) {
         const newKw = newFactKeywords.get(newFact.id);
-        if (!newKw || newKw.size < 2) continue; // Too short to compare
+        if (!newKw || newKw.size < 2) continue;
 
-        let linksForThisFact = 0;
-
+        let count = 0;
         for (const existingFact of existingFacts) {
-          if (linksForThisFact >= MAX_LINKS_PER_FACT) break;
-
+          if (count >= MAX_CANDIDATES_PER_ENTITY) break;
           const existingKw = extractKeywords(existingFact.content);
           const overlap = keywordOverlap(newKw, existingKw);
-
-          // Must have meaningful keyword overlap
-          if (overlap < MIN_KEYWORD_OVERLAP) continue;
-
-          // Boost score for temporal proximity
-          const temporalBoost = isTemporallyClose(newFact, existingFact) ? 0.1 : 0;
-          const relevanceScore = overlap + temporalBoost;
-
-          try {
-            await storage.createEdge({
-              id: crypto.randomUUID(),
-              tenantId,
-              sourceId: entityId,
-              targetId: entityId,
-              relation: 'relates_to',
-              edgeType: 'associative',
-              weight: Math.min(relevanceScore, 1.0),
-              factId: newFact.id,
-              confidence: overlap,
-              metadata: {
-                linkedFactId: existingFact.id,
-                reason: 'shared_entity_and_content',
-                entity: canonicalName,
-                keywordOverlap: overlap.toFixed(2),
-              },
-            });
-            edgesCreated++;
-            linksForThisFact++;
-          } catch {
-            // Duplicate or constraint — skip
+          if (overlap >= MIN_KEYWORD_OVERLAP) {
+            candidates.push({ newFact, existingFact, entityId, entityName: canonicalName, overlap });
+            count++;
           }
         }
       }
+    } catch { /* continue */ }
+  }
+
+  if (candidates.length === 0) return 0;
+
+  // Deduplicate by fact pair
+  const seen = new Set<string>();
+  const uniqueCandidates = candidates.filter(c => {
+    const key = `${c.newFact.id}|${c.existingFact.id}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  // Step 2: ONE LLM call to classify all relationships
+  let classifications: Array<{ index: number; relation: string; direction: 'forward' | 'reverse' }> = [];
+
+  if (llm && uniqueCandidates.length > 0) {
+    try {
+      const pairsText = uniqueCandidates.map((c, i) =>
+        `[${i}] NEW: "${c.newFact.content.slice(0, 150)}"\n    EXISTING: "${c.existingFact.content.slice(0, 150)}"\n    SHARED ENTITY: ${c.entityName}`
+      ).join('\n\n');
+
+      const response = await llm.complete([
+        {
+          role: 'system',
+          content: `Classify the relationship between each pair of facts. For each pair, output:
+- relation: one of "part_of", "has_child", "extends", "derives", "relates_to"
+- direction: "forward" (NEW → EXISTING) or "reverse" (EXISTING → NEW)
+
+Relationship meanings:
+- part_of: the NEW fact is a component/subtask/member of the EXISTING fact (forward: NEW part_of EXISTING)
+- has_child: the NEW fact is a parent/container of the EXISTING fact (forward: NEW has_child EXISTING)
+- extends: the NEW fact adds detail to the EXISTING fact without contradicting it
+- derives: the NEW fact is inferred from or builds upon the EXISTING fact
+- relates_to: loosely related but no clear hierarchy
+
+Return ONLY a JSON array: [{"index": 0, "relation": "part_of", "direction": "forward"}, ...]`
+        },
+        { role: 'user', content: pairsText }
+      ], { temperature: 0, responseFormat: 'json' });
+
+      classifications = JSON.parse(response.content) as typeof classifications;
     } catch {
-      // Entity lookup failed — continue
+      // LLM failed — fall back to heuristic relates_to
+      classifications = uniqueCandidates.map((_, i) => ({ index: i, relation: 'relates_to', direction: 'forward' as const }));
     }
+  } else {
+    // No LLM — all relates_to
+    classifications = uniqueCandidates.map((_, i) => ({ index: i, relation: 'relates_to', direction: 'forward' as const }));
+  }
+
+  // Step 3: Create typed edges
+  let edgesCreated = 0;
+
+  for (const cls of classifications) {
+    const candidate = uniqueCandidates[cls.index];
+    if (!candidate) continue;
+
+    const validRelations = ['part_of', 'has_child', 'extends', 'derives', 'relates_to'];
+    const relation = validRelations.includes(cls.relation) ? cls.relation : 'relates_to';
+
+    // Map relation to edge type
+    const edgeType = relation === 'extends' ? 'extends' as const
+      : relation === 'derives' ? 'derives' as const
+      : 'associative' as const;
+
+    // Determine source/target based on direction
+    const sourceFactId = cls.direction === 'forward' ? candidate.newFact.id : candidate.existingFact.id;
+    const targetFactId = cls.direction === 'forward' ? candidate.existingFact.id : candidate.newFact.id;
+
+    try {
+      await storage.createEdge({
+        id: crypto.randomUUID(),
+        tenantId,
+        sourceId: candidate.entityId,
+        targetId: candidate.entityId,
+        relation,
+        edgeType,
+        weight: Math.min(candidate.overlap + 0.2, 1.0),
+        factId: sourceFactId,
+        confidence: candidate.overlap,
+        metadata: {
+          sourceFactId,
+          targetFactId,
+          reason: llm ? 'llm_classified' : 'heuristic_keyword_overlap',
+          entity: candidate.entityName,
+          keywordOverlap: candidate.overlap.toFixed(2),
+        },
+      });
+      edgesCreated++;
+    } catch { /* duplicate or constraint */ }
   }
 
   if (edgesCreated > 0) {
-    console.error(`[steno] Cross-linked ${edgesCreated} related facts via shared entities`);
+    console.error(`[steno] Cross-linked ${edgesCreated} facts (${llm ? 'LLM-classified' : 'heuristic'}): ${uniqueCandidates.map(c => c.entityName).filter((v, i, a) => a.indexOf(v) === i).join(', ')}`);
   }
 
   return edgesCreated;

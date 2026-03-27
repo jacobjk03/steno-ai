@@ -1,1 +1,1 @@
-export { startSession, endSession } from './manager.js';
+export { startSession, endSession, getOrCreateActiveSession } from './manager.js';
