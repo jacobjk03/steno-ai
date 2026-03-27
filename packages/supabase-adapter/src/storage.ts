@@ -1122,6 +1122,71 @@ export class SupabaseStorageAdapter implements StorageAdapter {
   }
 
   // ---------------------------------------------------------------------------
+  // Session Messages
+  // ---------------------------------------------------------------------------
+
+  async addSessionMessage(msg: {
+    id: string;
+    sessionId: string;
+    tenantId: string;
+    role: string;
+    content: string;
+    turnNumber: number;
+  }): Promise<void> {
+    const { error } = await this.client
+      .from('session_messages')
+      .insert({
+        id: msg.id,
+        session_id: msg.sessionId,
+        tenant_id: msg.tenantId,
+        role: msg.role,
+        content: msg.content,
+        turn_number: msg.turnNumber,
+      });
+    if (error) throwSupabaseError('addSessionMessage', error);
+  }
+
+  async getSessionMessages(
+    tenantId: string,
+    sessionId: string,
+    options?: { unextractedOnly?: boolean },
+  ): Promise<Array<{ id: string; role: string; content: string; turnNumber: number; createdAt: Date }>> {
+    let query = this.client
+      .from('session_messages')
+      .select('id, role, content, turn_number, created_at')
+      .eq('tenant_id', tenantId)
+      .eq('session_id', sessionId)
+      .order('turn_number', { ascending: true });
+
+    if (options?.unextractedOnly) {
+      query = query.is('extraction_id', null);
+    }
+
+    const { data, error } = await query;
+    if (error) throwSupabaseError('getSessionMessages', error);
+
+    return (data ?? []).map(row => ({
+      id: row.id,
+      role: row.role,
+      content: row.content,
+      turnNumber: row.turn_number,
+      createdAt: new Date(row.created_at),
+    }));
+  }
+
+  async markMessagesExtracted(
+    messageIds: string[],
+    extractionId: string,
+  ): Promise<void> {
+    if (messageIds.length === 0) return;
+    const { error } = await this.client
+      .from('session_messages')
+      .update({ extraction_id: extractionId })
+      .in('id', messageIds);
+    if (error) throwSupabaseError('markMessagesExtracted', error);
+  }
+
+  // ---------------------------------------------------------------------------
   // Webhooks
   // ---------------------------------------------------------------------------
 

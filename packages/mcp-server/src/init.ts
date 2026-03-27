@@ -405,6 +405,20 @@ const MIGRATIONS = [
   `CREATE OR REPLACE FUNCTION increment_trigger_fired(p_tenant_id UUID, p_trigger_id UUID)
   RETURNS VOID LANGUAGE plpgsql AS $$ BEGIN UPDATE triggers SET times_fired = times_fired + 1,
     last_fired_at = NOW(), updated_at = NOW() WHERE tenant_id = p_tenant_id AND id = p_trigger_id; END; $$;`,
+  // Session Messages
+  `CREATE TABLE IF NOT EXISTS session_messages (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    role TEXT NOT NULL DEFAULT 'user',
+    content TEXT NOT NULL,
+    turn_number INTEGER NOT NULL,
+    extraction_id UUID,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_session_messages_session ON session_messages(session_id, turn_number);`,
+  `CREATE INDEX IF NOT EXISTS idx_session_messages_unextracted ON session_messages(session_id) WHERE extraction_id IS NULL;`,
+  `CREATE INDEX IF NOT EXISTS idx_session_messages_tenant ON session_messages(tenant_id);`,
   // Default tenant
   `INSERT INTO tenants (id, name, slug, plan) VALUES ('00000000-0000-0000-0000-000000000001', 'Default', 'default', 'enterprise') ON CONFLICT DO NOTHING;`,
 ];
