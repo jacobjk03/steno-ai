@@ -364,8 +364,9 @@ CRITICAL RULES:
     {
       query: z.string().describe('What to search for in memory'),
       limit: z.number().optional().describe('Max results (default 10)'),
+      max_tokens: z.number().optional().describe('Approximate token budget for the response. Results will be truncated from lowest-scored to fit.'),
     },
-    async ({ query, limit }) => {
+    async ({ query, limit, max_tokens }) => {
       // Auto-flush any pending buffered messages before searching
       const key = bufferKey();
       const active = activeSessions.get(key);
@@ -554,8 +555,13 @@ CRITICAL RULES:
       const enrichedLines: string[] = [];
       for (const r of sortedResults) {
         const meta = r.fact.metadata as Record<string, unknown> | undefined;
+
+        // Skip dismissed facts
+        if (meta?.dismissed === true) continue;
+
         const status = meta?.status as string | undefined;
         const priorityOrder = meta?.priority_order as number | undefined;
+        const confidence = meta?.confidence as number | undefined;
         const deps = depMap.get(r.fact.id);
 
         const dateParts: string[] = [];
@@ -574,7 +580,7 @@ CRITICAL RULES:
         let line: string;
         if (isPriority) {
           line = `[Priority${priorityOrder ? ` #${priorityOrder}` : ''}] ${r.fact.content}`;
-          line += `\n  status: ${status || 'unknown'}`;
+          line += `\n  status: ${status || 'unknown'}${confidence !== undefined ? ` (confidence: ${confidence})` : ''}`;
           if (blocks.length > 0) line += `\n  blocks: → ${blocks.join(', ')}`;
           if (blockedBy.length > 0) line += `\n  blocked_by: ← ${blockedBy.join(', ')}`;
           else if (status === 'not_started') line += `\n  blocked_by: none`;
@@ -590,13 +596,32 @@ CRITICAL RULES:
         enrichedLines.push(line);
       }
 
-      const text = enrichedLines.join('\n');
+      // Token budget truncation: drop lowest-scored results to fit
+      let finalLines = enrichedLines;
+      let truncatedCount = 0;
+      if (max_tokens && max_tokens > 0) {
+        const budgetLines: string[] = [];
+        let tokenEstimate = 0;
+        for (const line of enrichedLines) {
+          const lineTokens = Math.ceil(line.length / 4);
+          if (tokenEstimate + lineTokens > max_tokens && budgetLines.length > 0) {
+            truncatedCount = enrichedLines.length - budgetLines.length;
+            break;
+          }
+          budgetLines.push(line);
+          tokenEstimate += lineTokens;
+        }
+        finalLines = budgetLines;
+      }
+
+      const text = finalLines.join('\n');
+      const truncNote = truncatedCount > 0 ? `\n\n(${truncatedCount} more results truncated to fit token budget)` : '';
 
       return {
         content: [
           {
             type: 'text' as const,
-            text: `Found ${results.results.length} memories (${results.durationMs}ms):\n\n${text}`,
+            text: `Found ${results.results.length} memories (${results.durationMs}ms):\n\n${text}${truncNote}`,
           },
         ],
       };
@@ -635,8 +660,9 @@ CRITICAL RULES:
     {
       priority: z.number().describe('Priority number (1-6)'),
       status: z.enum(['not_started', 'in_progress', 'done', 'blocked']).describe('New status'),
+      confidence: z.number().min(0).max(1).optional().describe('Confidence level (0.0-1.0) that this status is accurate'),
     },
-    async ({ priority, status }) => {
+    async ({ priority, status, confidence }) => {
       try {
         // Find the fact with this priority_order
         const { data: facts, error: findError } = await (config.storage as any).client
@@ -653,7 +679,7 @@ CRITICAL RULES:
         }
 
         const oldStatus = fact.metadata?.status || 'unknown';
-        const newMetadata = { ...fact.metadata, status };
+        const newMetadata = { ...fact.metadata, status, ...(confidence !== undefined && { confidence }) };
 
         const { error: updateError } = await (config.storage as any).client
           .from('facts')
@@ -667,11 +693,52 @@ CRITICAL RULES:
         return {
           content: [{
             type: 'text' as const,
-            text: `Priority #${priority} (${shortName}): ${oldStatus} → ${status}`,
+            text: `Priority #${priority} (${shortName}): ${oldStatus} → ${status}${confidence !== undefined ? ` (confidence: ${confidence})` : ''}`,
           }],
         };
       } catch (err: any) {
         return { content: [{ type: 'text' as const, text: `Error updating status: ${err?.message ?? err}` }] };
+      }
+    },
+  );
+
+  // ─── DISMISS ───
+  server.tool(
+    'steno_dismiss',
+    'Mark a memory/fact as dismissed without deleting it. Dismissed facts are hidden from future recall results. Use when a fact is outdated, irrelevant, or no longer useful.',
+    {
+      fact_id: z.string().describe('The fact ID to dismiss'),
+    },
+    async ({ fact_id }) => {
+      try {
+        const { data: fact, error: findError } = await (config.storage as any).client
+          .from('facts')
+          .select('id, content, metadata')
+          .eq('id', fact_id)
+          .eq('tenant_id', config.tenantId)
+          .maybeSingle();
+
+        if (findError) throw findError;
+        if (!fact) {
+          return { content: [{ type: 'text' as const, text: `Fact ${fact_id} not found.` }] };
+        }
+
+        const newMetadata = { ...fact.metadata, dismissed: true, dismissedAt: new Date().toISOString() };
+
+        const { error: updateError } = await (config.storage as any).client
+          .from('facts')
+          .update({ metadata: newMetadata })
+          .eq('id', fact_id)
+          .eq('tenant_id', config.tenantId);
+
+        if (updateError) throw updateError;
+
+        const preview = fact.content.slice(0, 60);
+        return {
+          content: [{ type: 'text' as const, text: `Dismissed: "${preview}..."` }],
+        };
+      } catch (err: any) {
+        return { content: [{ type: 'text' as const, text: `Error dismissing fact: ${err?.message ?? err}` }] };
       }
     },
   );
