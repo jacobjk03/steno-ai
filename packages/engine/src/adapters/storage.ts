@@ -158,6 +158,11 @@ export interface StorageAdapter {
   endSession(tenantId: string, id: string, summary?: string, topics?: string[]): Promise<Session>;
   getSessionsByScope(tenantId: string, scope: string, scopeId: string, options: PaginationOptions): Promise<PaginatedResult<Session>>;
 
+  // Session Messages
+  addSessionMessage(msg: { id: string; sessionId: string; tenantId: string; role: string; content: string; turnNumber: number }): Promise<void>;
+  getSessionMessages(tenantId: string, sessionId: string, options?: { unextractedOnly?: boolean }): Promise<Array<{ id: string; role: string; content: string; turnNumber: number; createdAt: Date }>>;
+  markMessagesExtracted(messageIds: string[], extractionId: string): Promise<void>;
+
   // Tenants
   createTenant(tenant: CreateTenant & { id: string }): Promise<Tenant>;
   getTenant(id: string): Promise<Tenant | null>;
