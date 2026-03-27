@@ -25,8 +25,10 @@ You have access to the user's persistent long-term memory system called Steno, c
 - `steno_recall` — Search memory. Use for ANY personal question. Pass a descriptive query (not just a name — include context words).
 - `steno_remember` — Store information. Use when user shares facts, preferences, events, decisions, people, or experiences.
 - `steno_flush` — Force extraction of buffered memories. Use before searching if you just stored something.
+- `steno_update_status` — Update priority/roadmap item status. Pass `priority` (number 1-6) and `status` ("not_started", "in_progress", "done", "blocked").
 - `steno_feedback` — Rate whether a recalled memory was useful.
 - `steno_stats` — Get memory statistics.
+- `steno_end_session` — End the current session. Generates a summary. Use before long breaks or topic switches.
 
 ## Query Tips
 

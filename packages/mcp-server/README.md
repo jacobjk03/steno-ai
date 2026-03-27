@@ -42,8 +42,10 @@ That's it. Your data stays in YOUR Supabase project. Nothing is shared.
 | `steno_remember` | Stores facts, preferences, decisions, people, events |
 | `steno_recall` | Searches memory with 6-signal fusion (vector + keyword + graph + temporal + recency + salience) |
 | `steno_flush` | Forces extraction of buffered session messages |
+| `steno_update_status` | Updates priority/roadmap item status (not_started, in_progress, done, blocked) |
 | `steno_feedback` | Rates whether a recalled memory was useful |
 | `steno_stats` | Shows memory statistics |
+| `steno_end_session` | Ends current session, generates summary, starts fresh next time |
 
 ## How it works
 
@@ -100,6 +102,7 @@ Then run the migrations manually — see [migrations folder](https://github.com/
 | `OPENAI_API_KEY` | Yes | For LLM extraction and embeddings |
 | `PERPLEXITY_API_KEY` | No | Cheaper embeddings ($0.03/1M tokens vs $0.13) |
 | `STENO_SCOPE_ID` | No | Scope identifier (default: "default") |
+| `STENO_SESSION_TIMEOUT_MS` | No | Session auto-end timeout in ms (default: 1800000 = 30 min) |
 
 ## For Developers
 
