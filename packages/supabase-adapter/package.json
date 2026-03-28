@@ -1,6 +1,6 @@
 {
   "name": "@steno-ai/supabase-adapter",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Supabase/PostgreSQL storage adapter for Steno",
   "license": "MIT",
   "repository": {
