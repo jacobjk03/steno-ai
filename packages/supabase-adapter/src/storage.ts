@@ -125,28 +125,53 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     this.encryption = encryption;
   }
 
-  // Helper: encrypt a field if encryption is configured, else return as-is
+  // Encrypt a single field. Returns value as-is if no encryption configured or value is null.
   private enc(value: string | null | undefined): string | null | undefined {
     if (value == null || value === '') return value;
     if (!this.encryption) return value;
     return this.encryption.encryptField(value);
   }
 
-  // Helper: decrypt a field if encryption is configured, else return as-is
-  // Also handles graceful fallback: if value does not look encrypted, return as-is
-  // This handles mixed rows (old plaintext rows + new encrypted rows)
+  // Decrypt a single field. Returns value as-is if:
+  // - no encryption configured
+  // - value is null/empty
+  // - value does not match encrypted format (handles old plaintext rows gracefully)
   private dec(value: string | null | undefined): string | null | undefined {
     if (value == null || value === '') return value;
     if (!this.encryption) return value;
-    // Encrypted format: iv:authTag:ciphertext (contains exactly 2 colons)
-    // If it doesn't match this pattern, it's plaintext — return as-is
-    const parts = value.split(':');
-    if (parts.length !== 3) return value; // plaintext fallback
+    // Encrypted format is always: iv:authTag:ciphertext (exactly 3 colon-separated parts)
+    // If the value does not match this pattern it is plaintext — return as-is
+    const parts = (value as string).split(':');
+    if (parts.length !== 3) return value;
     try {
-      return this.encryption.decryptField(value);
+      return this.encryption.decryptField(value as string);
     } catch {
-      return value; // decryption failed — return as-is rather than crash
+      return value; // decryption failed — return as-is, never crash
     }
+  }
+
+  // Decrypt all sensitive text fields on a facts row.
+  // Call this on every row returned from any facts query.
+  private decryptFactRow(row: Record<string, unknown>): Record<string, unknown> {
+    if (row['content'] != null) row['content'] = this.dec(row['content'] as string);
+    if (row['source_chunk'] != null) row['source_chunk'] = this.dec(row['source_chunk'] as string);
+    if (row['original_content'] != null) row['original_content'] = this.dec(row['original_content'] as string);
+    return row;
+  }
+
+  // Decrypt all sensitive text fields on an entities row.
+  // NOTE: canonical_name is intentionally NOT decrypted — it stays plaintext for DB lookups.
+  private decryptEntityRow(row: Record<string, unknown>): Record<string, unknown> {
+    if (row['name'] != null) row['name'] = this.dec(row['name'] as string);
+    if (row['properties'] != null) {
+      const decrypted = this.dec(row['properties'] as string);
+      try {
+        row['properties'] = decrypted ? JSON.parse(decrypted as string) : row['properties'];
+      } catch {
+        row['properties'] = decrypted; // not valid JSON, keep as string
+      }
+    }
+    return row;
   }
 
   async ping(): Promise<boolean> {
@@ -414,12 +439,8 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       .maybeSingle();
     if (error) throwSupabaseError('getFact', error);
     if (!data) return null;
-    const row = data as Record<string, unknown>;
-    // Decrypt sensitive text fields after fetching
-    if (row['content'] != null) row['content'] = this.dec(row['content'] as string);
-    if (row['source_chunk'] != null) row['source_chunk'] = this.dec(row['source_chunk'] as string);
-    if (row['original_content'] != null) row['original_content'] = this.dec(row['original_content'] as string);
-    return toCamelCase(row) as unknown as Fact;
+    this.decryptFactRow(data as Record<string, unknown>);
+    return toCamelCase(data as Record<string, unknown>) as unknown as Fact;
   }
 
   async getFactsByIds(tenantId: string, ids: string[]): Promise<Fact[]> {
@@ -431,11 +452,8 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       .in('id', ids);
     if (error) throwSupabaseError('getFactsByIds', error);
     return (data ?? []).map((row) => {
-      const r = row as Record<string, unknown>;
-      if (r['content'] != null) r['content'] = this.dec(r['content'] as string);
-      if (r['source_chunk'] != null) r['source_chunk'] = this.dec(r['source_chunk'] as string);
-      if (r['original_content'] != null) r['original_content'] = this.dec(r['original_content'] as string);
-      return toCamelCase(r) as unknown as Fact;
+      this.decryptFactRow(row as Record<string, unknown>);
+      return toCamelCase(row as Record<string, unknown>) as unknown as Fact;
     });
   }
 
@@ -448,11 +466,8 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       .order('version', { ascending: true });
     if (error) throwSupabaseError('getFactsByLineage', error);
     return (data ?? []).map((row) => {
-      const r = row as Record<string, unknown>;
-      if (r['content'] != null) r['content'] = this.dec(r['content'] as string);
-      if (r['source_chunk'] != null) r['source_chunk'] = this.dec(r['source_chunk'] as string);
-      if (r['original_content'] != null) r['original_content'] = this.dec(r['original_content'] as string);
-      return toCamelCase(r) as unknown as Fact;
+      this.decryptFactRow(row as Record<string, unknown>);
+      return toCamelCase(row as Record<string, unknown>) as unknown as Fact;
     });
   }
 
@@ -480,13 +495,13 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     const { embedding, ...rest } = entity;
     const row = toSnakeCase(rest as unknown as Record<string, unknown>);
 
-    // Encrypt entity name and properties
+    // Encrypt display name and properties before persisting
+    // NOTE: canonical_name is intentionally NOT encrypted — it is used for DB equality lookups
     if (row['name'] != null) row['name'] = this.enc(row['name'] as string);
     if (row['properties'] != null) {
-      const propsStr = typeof row['properties'] === 'string'
-        ? row['properties']
-        : JSON.stringify(row['properties']);
-      row['properties'] = this.enc(propsStr);
+      // Always JSON.stringify regardless of whether it is already a string.
+      // This ensures consistent round-trip: stringify on write, parse on read.
+      row['properties'] = this.enc(JSON.stringify(row['properties']));
     }
 
     if (embedding !== undefined) {
@@ -511,17 +526,8 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       .maybeSingle();
     if (error) throwSupabaseError('getEntity', error);
     if (!data) return null;
-    const erow = data as Record<string, unknown>;
-    if (erow['name'] != null) erow['name'] = this.dec(erow['name'] as string);
-    if (erow['properties'] != null) {
-      const decrypted = this.dec(erow['properties'] as string);
-      try {
-        erow['properties'] = decrypted ? JSON.parse(decrypted) : erow['properties'];
-      } catch {
-        erow['properties'] = decrypted;
-      }
-    }
-    return toCamelCase(erow) as unknown as Entity;
+    this.decryptEntityRow(data as Record<string, unknown>);
+    return toCamelCase(data as Record<string, unknown>) as unknown as Entity;
   }
 
   async findEntityByCanonicalName(
@@ -538,17 +544,8 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       .maybeSingle();
     if (error) throwSupabaseError('findEntityByCanonicalName', error);
     if (!data) return null;
-    const erow = data as Record<string, unknown>;
-    if (erow['name'] != null) erow['name'] = this.dec(erow['name'] as string);
-    if (erow['properties'] != null) {
-      const decrypted = this.dec(erow['properties'] as string);
-      try {
-        erow['properties'] = decrypted ? JSON.parse(decrypted) : erow['properties'];
-      } catch {
-        erow['properties'] = decrypted;
-      }
-    }
-    return toCamelCase(erow) as unknown as Entity;
+    this.decryptEntityRow(data as Record<string, unknown>);
+    return toCamelCase(data as Record<string, unknown>) as unknown as Entity;
   }
 
   async findEntitiesByEmbedding(
@@ -565,15 +562,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     });
     if (error) throwSupabaseError('findEntitiesByEmbedding', error);
     return (data ?? []).map((row: Record<string, unknown>) => {
-      if (row['name'] != null) row['name'] = this.dec(row['name'] as string);
-      if (row['properties'] != null) {
-        const decrypted = this.dec(row['properties'] as string);
-        try {
-          row['properties'] = decrypted ? JSON.parse(decrypted) : row['properties'];
-        } catch {
-          row['properties'] = decrypted;
-        }
-      }
+      this.decryptEntityRow(row);
       return {
         entity: toCamelCase(row) as unknown as Entity,
         similarity: row['similarity'] as number,
@@ -631,11 +620,9 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     if (error) throwSupabaseError('vectorSearch', error);
 
     return (data ?? []).map((row: Record<string, unknown>) => {
-      if (row['content'] != null) row['content'] = this.dec(row['content'] as string);
-      if (row['source_chunk'] != null) row['source_chunk'] = this.dec(row['source_chunk'] as string);
-      if (row['original_content'] != null) row['original_content'] = this.dec(row['original_content'] as string);
+      this.decryptFactRow(row);
       return {
-        fact: toCamelCase(row as Record<string, unknown>) as unknown as Fact,
+        fact: toCamelCase(row) as unknown as Fact,
         similarity: row['similarity'] as number,
       };
     });
@@ -714,11 +701,8 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     const hasMore = rows.length > limit;
     const page = hasMore ? rows.slice(0, limit) : rows;
     const facts = page.map((row) => {
-      const r = row as Record<string, unknown>;
-      if (r['content'] != null) r['content'] = this.dec(r['content'] as string);
-      if (r['source_chunk'] != null) r['source_chunk'] = this.dec(r['source_chunk'] as string);
-      if (r['original_content'] != null) r['original_content'] = this.dec(r['original_content'] as string);
-      return toCamelCase(r) as unknown as Fact;
+      this.decryptFactRow(row as Record<string, unknown>);
+      return toCamelCase(row as Record<string, unknown>) as unknown as Fact;
     });
     const nextCursor = hasMore && page.length > 0
       ? (page[page.length - 1] as Record<string, unknown>)['created_at'] as string
@@ -804,6 +788,11 @@ export class SupabaseStorageAdapter implements StorageAdapter {
   }
 
   async keywordSearch(options: KeywordSearchOptions): Promise<KeywordSearchResult[]> {
+    // Keyword search uses PostgreSQL to_tsquery which cannot match encrypted ciphertext.
+    // When encryption is configured, skip keyword search entirely.
+    // Vector search (vectorSearch / compoundSearch) still works correctly via embeddings.
+    if (this.encryption) return [];
+
     const { query, tenantId, scope, scopeId, limit, asOf } = options;
 
     const { data, error } = await this.client.rpc('keyword_search_facts', {
@@ -818,9 +807,6 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     if (error) throwSupabaseError('keywordSearch', error);
 
     return (data ?? []).map((row: Record<string, unknown>) => {
-      if (row['content'] != null) row['content'] = this.dec(row['content'] as string);
-      if (row['source_chunk'] != null) row['source_chunk'] = this.dec(row['source_chunk'] as string);
-      if (row['original_content'] != null) row['original_content'] = this.dec(row['original_content'] as string);
       const rankScore = row['rank_score'] as number;
       const converted = toCamelCase(row);
       return {
@@ -844,9 +830,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     if (error) throwSupabaseError('compoundSearch', error);
 
     return (data ?? []).map((row: Record<string, unknown>) => {
-      if (row['content'] != null) row['content'] = this.dec(row['content'] as string);
-      if (row['source_chunk'] != null) row['source_chunk'] = this.dec(row['source_chunk'] as string);
-      if (row['original_content'] != null) row['original_content'] = this.dec(row['original_content'] as string);
+      this.decryptFactRow(row);
       return {
         source: row['source'] as 'vector' | 'keyword',
         fact: toCamelCase(row) as unknown as Fact,
@@ -878,17 +862,8 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     const hasMore = rows.length > limit;
     const page = hasMore ? rows.slice(0, limit) : rows;
     const entities = page.map((row) => {
-      const r = row as Record<string, unknown>;
-      if (r['name'] != null) r['name'] = this.dec(r['name'] as string);
-      if (r['properties'] != null) {
-        const decrypted = this.dec(r['properties'] as string);
-        try {
-          r['properties'] = decrypted ? JSON.parse(decrypted) : r['properties'];
-        } catch {
-          r['properties'] = decrypted;
-        }
-      }
-      return toCamelCase(r) as unknown as Entity;
+      this.decryptEntityRow(row as Record<string, unknown>);
+      return toCamelCase(row as Record<string, unknown>) as unknown as Entity;
     });
     const nextCursor = hasMore && page.length > 0
       ? (page[page.length - 1] as Record<string, unknown>)['created_at'] as string
